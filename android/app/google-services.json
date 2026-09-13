@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "918148810697",
+    "project_id": "events-manager-e6c16",
+    "storage_bucket": "events-manager-e6c16.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:918148810697:android:475a79a32e6817c6a94a18",
+        "android_client_info": {
+          "package_name": "com.example.auth_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "918148810697-1paq4eiht9qo186nf35ee4563uph9kdl.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCCWg9LjMW4c4ura98p2RjQuh3DAQLxbPU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "918148810697-1paq4eiht9qo186nf35ee4563uph9kdl.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

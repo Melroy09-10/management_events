@@ -1,0 +1,76 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSuperAdmin() {
+      return request.auth != null
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superAdmin';
+    }
+
+    match /users/{userId} {
+      allow read: if request.auth != null;
+
+      allow create: if request.auth != null
+                    && request.auth.uid == userId
+                    && request.resource.data.keys().hasOnly(['name', 'email', 'phone', 'place', 'role', 'nameLower'])
+                    && request.resource.data.role in ['superAdmin', 'admin', 'member'];
+
+      // A user may update their own profile as long as their role doesn't
+      // change; only the Super Admin may promote/demote a member's role.
+      allow update: if request.auth != null
+                    && (
+                      (request.auth.uid == userId && request.resource.data.role == resource.data.role)
+                      || (isSuperAdmin()
+                          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])
+                          && request.resource.data.role in ['admin', 'member'])
+                    );
+
+      allow delete: if false;
+
+      // Manage Data: strictly private to this account. No other user
+      // (Super Admin included) can read or write another user's data.
+      match /people/{personId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      match /event_types/{eventTypeId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      match /events/{eventId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      match /event_bookings/{bookingId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // Requests from a member asking to be promoted to Admin.
+    match /admin_requests/{requestId} {
+      allow read: if request.auth != null
+                  && (request.auth.uid == requestId || isSuperAdmin());
+
+      allow create: if request.auth != null
+                    && request.auth.uid == requestId
+                    && request.resource.data.userId == requestId
+                    && request.resource.data.status == 'pending';
+
+      allow update: if request.auth != null
+                    && (
+                      // Super Admin approves or rejects a pending request.
+                      (isSuperAdmin()
+                       && resource.data.status == 'pending'
+                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+                       && request.resource.data.status in ['approved', 'rejected'])
+                      // The member re-sends a request that was rejected before.
+                      || (request.auth.uid == requestId
+                          && resource.data.status == 'rejected'
+                          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'requestedAt'])
+                          && request.resource.data.status == 'pending')
+                    );
+
+      allow delete: if false;
+    }
+  }
+}
