@@ -54,11 +54,16 @@ class EventDetailsScreen extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.event_busy_rounded, size: 56, color: AppColors.textSecondaryLight),
+                      Icon(
+                        Icons.event_busy_rounded,
+                        size: 56,
+                        color: AppColors.textSecondaryLight,
+                      ),
                       const SizedBox(height: 12),
                       Text(
                         'No events added yet',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                     ],
                   ),
@@ -85,6 +90,7 @@ class _EventTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = onSurfaceAccent(context, AppColors.secondary);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -98,18 +104,27 @@ class _EventTile extends StatelessWidget {
           Row(
             children: [
               CircleAvatar(
-                backgroundColor: AppColors.secondary.withValues(alpha: 0.12),
-                child: Icon(Icons.event_note_rounded, color: AppColors.secondary),
+                backgroundColor: accent.withValues(alpha: 0.12),
+                child: Icon(Icons.event_note_rounded, color: accent),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(event.eventName, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                    Text(
+                      event.eventName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
                     Text(
                       event.eventType,
-                      style: TextStyle(color: AppColors.textSecondaryLight, fontSize: 12.5),
+                      style: TextStyle(
+                        color: AppColors.textSecondaryLight,
+                        fontSize: 12.5,
+                      ),
                     ),
                   ],
                 ),
@@ -129,20 +144,34 @@ class _EventTile extends StatelessWidget {
           const Divider(height: 20),
           Row(
             children: [
-              Icon(Icons.location_on_outlined, size: 16, color: AppColors.textSecondaryLight),
+              Icon(
+                Icons.location_on_outlined,
+                size: 16,
+                color: AppColors.textSecondaryLight,
+              ),
               const SizedBox(width: 6),
-              Expanded(child: Text(event.location, overflow: TextOverflow.ellipsis)),
+              Expanded(
+                child: Text(event.location, overflow: TextOverflow.ellipsis),
+              ),
             ],
           ),
           const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
-                child: _AmountChip(label: 'Day', amount: event.dayAmount, color: AppColors.warning),
+                child: _AmountChip(
+                  label: 'Day',
+                  amount: event.dayAmount,
+                  color: AppColors.warning,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: _AmountChip(label: 'Night', amount: event.nightAmount, color: AppColors.accent),
+                child: _AmountChip(
+                  label: 'Night',
+                  amount: event.nightAmount,
+                  color: AppColors.accent,
+                ),
               ),
             ],
           ),
@@ -159,7 +188,9 @@ class _EventTile extends StatelessWidget {
       await context.read<DataService>().deleteEvent(event.id);
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not delete: $e')));
       }
     }
   }
@@ -169,18 +200,35 @@ class _AmountChip extends StatelessWidget {
   final String label;
   final double amount;
   final Color color;
-  const _AmountChip({required this.label, required this.amount, required this.color});
+  const _AmountChip({
+    required this.label,
+    required this.amount,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w700)),
-          Text(formatCurrency(amount), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          Text(
+            formatCurrency(amount),
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+          ),
         ],
       ),
     );
@@ -221,9 +269,15 @@ class _EventFormSheetState extends State<_EventFormSheet> {
     _selectedTypeId = widget.existing?.eventTypeId;
     _selectedTypeName = widget.existing?.eventType;
     _selectedEventName = widget.existing?.eventName;
-    _locationController = TextEditingController(text: widget.existing?.location ?? '');
-    _dayAmountController = TextEditingController(text: widget.existing?.dayAmount.toString() ?? '');
-    _nightAmountController = TextEditingController(text: widget.existing?.nightAmount.toString() ?? '');
+    _locationController = TextEditingController(
+      text: widget.existing?.location ?? '',
+    );
+    _dayAmountController = TextEditingController(
+      text: widget.existing?.dayAmount.toString() ?? '',
+    );
+    _nightAmountController = TextEditingController(
+      text: widget.existing?.nightAmount.toString() ?? '',
+    );
   }
 
   @override
@@ -234,7 +288,10 @@ class _EventFormSheetState extends State<_EventFormSheet> {
     super.dispose();
   }
 
-  Future<void> _promptForName({required String title, required String label}) async {
+  Future<void> _promptForName({
+    required String title,
+    required String label,
+  }) async {
     final controller = TextEditingController();
     final name = await showDialog<String>(
       context: context,
@@ -246,9 +303,13 @@ class _EventFormSheetState extends State<_EventFormSheet> {
           decoration: InputDecoration(labelText: label),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
             child: const Text('Add'),
           ),
         ],
@@ -267,24 +328,33 @@ class _EventFormSheetState extends State<_EventFormSheet> {
           _selectedEventName = null;
         });
       } else {
-        final canonicalName = await dataService.addOrGetEventName(_selectedTypeId!, name);
+        final canonicalName = await dataService.addOrGetEventName(
+          _selectedTypeId!,
+          name,
+        );
         if (!mounted) return;
         setState(() => _selectedEventName = canonicalName);
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not save: $e')));
     }
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedTypeId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select an Event Type')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Select an Event Type')));
       return;
     }
     if (_selectedEventName == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select an Event Name')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Select an Event Name')));
       return;
     }
 
@@ -294,12 +364,19 @@ class _EventFormSheetState extends State<_EventFormSheet> {
     final location = _locationController.text.trim();
 
     try {
-      final belongsToType = await dataService.eventNameBelongsToType(_selectedTypeId!, _selectedEventName!);
+      final belongsToType = await dataService.eventNameBelongsToType(
+        _selectedTypeId!,
+        _selectedEventName!,
+      );
       if (!belongsToType) {
         if (!mounted) return;
         setState(() => _saving = false);
         messenger.showSnackBar(
-          const SnackBar(content: Text('The selected event name does not belong to this event type.')),
+          const SnackBar(
+            content: Text(
+              'The selected event name does not belong to this event type.',
+            ),
+          ),
         );
         return;
       }
@@ -312,7 +389,11 @@ class _EventFormSheetState extends State<_EventFormSheet> {
       if (isDuplicate) {
         if (!mounted) return;
         setState(() => _saving = false);
-        messenger.showSnackBar(const SnackBar(content: Text('This event already exists for this event type.')));
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('This event already exists for this event type.'),
+          ),
+        );
         return;
       }
 
@@ -334,7 +415,13 @@ class _EventFormSheetState extends State<_EventFormSheet> {
       if (!mounted) return;
       Navigator.of(context).pop();
       messenger.showSnackBar(
-        SnackBar(content: Text(widget.existing == null ? 'Event added successfully' : 'Event updated successfully')),
+        SnackBar(
+          content: Text(
+            widget.existing == null
+                ? 'Event added successfully'
+                : 'Event updated successfully',
+          ),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -349,9 +436,13 @@ class _EventFormSheetState extends State<_EventFormSheet> {
     final dataService = context.read<DataService>();
 
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: Container(
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
         decoration: BoxDecoration(
           color: Theme.of(context).scaffoldBackgroundColor,
@@ -369,19 +460,26 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                     width: 40,
                     height: 4,
                     margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2)),
+                    decoration: BoxDecoration(
+                      color: Colors.black12,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
                 Text(
                   isEditing ? 'Edit Event' : 'Add Event',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 20),
                 StreamBuilder<List<EventType>>(
                   stream: dataService.eventTypes(),
                   builder: (context, snapshot) {
                     final types = snapshot.data ?? const <EventType>[];
-                    final hasSelected = _selectedTypeId != null && types.any((t) => t.id == _selectedTypeId);
+                    final hasSelected =
+                        _selectedTypeId != null &&
+                        types.any((t) => t.id == _selectedTypeId);
 
                     return DropdownButtonFormField<String>(
                       initialValue: hasSelected ? _selectedTypeId : null,
@@ -390,7 +488,12 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                         prefixIcon: Icon(Icons.category_outlined),
                       ),
                       items: [
-                        ...types.map((t) => DropdownMenuItem(value: t.id, child: Text(t.name))),
+                        ...types.map(
+                          (t) => DropdownMenuItem(
+                            value: t.id,
+                            child: Text(t.name),
+                          ),
+                        ),
                         const DropdownMenuItem(
                           value: _addNewValue,
                           child: Row(
@@ -402,10 +505,14 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                           ),
                         ),
                       ],
-                      validator: (_) => _selectedTypeId == null ? 'Required' : null,
+                      validator: (_) =>
+                          _selectedTypeId == null ? 'Required' : null,
                       onChanged: (value) {
                         if (value == _addNewValue) {
-                          _promptForName(title: 'New Event Type', label: 'Type name (e.g. Wedding)');
+                          _promptForName(
+                            title: 'New Event Type',
+                            label: 'Type name (e.g. Wedding)',
+                          );
                           return;
                         }
                         final type = types.firstWhere((t) => t.id == value);
@@ -423,9 +530,15 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                   stream: dataService.eventTypes(),
                   builder: (context, snapshot) {
                     final types = snapshot.data ?? const <EventType>[];
-                    final typeMatches = types.where((t) => t.id == _selectedTypeId);
-                    final names = typeMatches.isEmpty ? const <String>[] : typeMatches.first.eventNames;
-                    final hasSelected = _selectedEventName != null && names.contains(_selectedEventName);
+                    final typeMatches = types.where(
+                      (t) => t.id == _selectedTypeId,
+                    );
+                    final names = typeMatches.isEmpty
+                        ? const <String>[]
+                        : typeMatches.first.eventNames;
+                    final hasSelected =
+                        _selectedEventName != null &&
+                        names.contains(_selectedEventName);
 
                     return DropdownButtonFormField<String>(
                       initialValue: hasSelected ? _selectedEventName : null,
@@ -434,7 +547,9 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                         prefixIcon: Icon(Icons.label_outline_rounded),
                       ),
                       items: [
-                        ...names.map((n) => DropdownMenuItem(value: n, child: Text(n))),
+                        ...names.map(
+                          (n) => DropdownMenuItem(value: n, child: Text(n)),
+                        ),
                         const DropdownMenuItem(
                           value: _addNewValue,
                           child: Row(
@@ -446,12 +561,16 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                           ),
                         ),
                       ],
-                      validator: (_) => _selectedEventName == null ? 'Required' : null,
+                      validator: (_) =>
+                          _selectedEventName == null ? 'Required' : null,
                       onChanged: _selectedTypeId == null
                           ? null
                           : (value) {
                               if (value == _addNewValue) {
-                                _promptForName(title: 'New Event Name', label: 'Event name (e.g. Wedding Reception)');
+                                _promptForName(
+                                  title: 'New Event Name',
+                                  label: 'Event name (e.g. Wedding Reception)',
+                                );
                                 return;
                               }
                               setState(() => _selectedEventName = value);
@@ -465,7 +584,8 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                   label: 'Location *',
                   icon: Icons.location_on_outlined,
                   validator: (value) {
-                    if (value == null || value.trim().isEmpty) return 'Location is required';
+                    if (value == null || value.trim().isEmpty)
+                      return 'Location is required';
                     return null;
                   },
                 ),
@@ -474,11 +594,14 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                   controller: _dayAmountController,
                   label: 'Day Amount *',
                   icon: Icons.wb_sunny_outlined,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   validator: (value) {
                     final trimmed = value?.trim() ?? '';
                     if (trimmed.isEmpty) return 'Day Amount is required';
-                    if (double.tryParse(trimmed) == null) return 'Enter a valid amount';
+                    if (double.tryParse(trimmed) == null)
+                      return 'Enter a valid amount';
                     return null;
                   },
                 ),
@@ -487,16 +610,23 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                   controller: _nightAmountController,
                   label: 'Night Amount *',
                   icon: Icons.nightlight_outlined,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   validator: (value) {
                     final trimmed = value?.trim() ?? '';
                     if (trimmed.isEmpty) return 'Night Amount is required';
-                    if (double.tryParse(trimmed) == null) return 'Enter a valid amount';
+                    if (double.tryParse(trimmed) == null)
+                      return 'Enter a valid amount';
                     return null;
                   },
                 ),
                 const SizedBox(height: 20),
-                PrimaryButton(label: isEditing ? 'Update' : 'Save', onPressed: _save, loading: _saving),
+                PrimaryButton(
+                  label: isEditing ? 'Update' : 'Save',
+                  onPressed: _save,
+                  loading: _saving,
+                ),
               ],
             ),
           ),

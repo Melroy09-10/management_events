@@ -9,9 +9,13 @@ class AppColors {
   AppColors._();
 
   static const Color primary = Color(0xFF0B1F3A); // Royal Navy
-  static const Color primaryDark = Color(0xFF071527); // Deeper navy (gradients, pressed states)
+  static const Color primaryDark = Color(
+    0xFF071527,
+  ); // Deeper navy (gradients, pressed states)
   static const Color secondary = Color(0xFF132D4A); // Secondary Navy
-  static const Color accent = Color(0xFF2C4870); // Sapphire — a lighter navy accent
+  static const Color accent = Color(
+    0xFF2C4870,
+  ); // Sapphire — a lighter navy accent
 
   static const Color gold = Color(0xFFC9A227); // Champagne Gold — use sparingly
   static const Color goldDark = Color(0xFF9C7B1D);
@@ -74,8 +78,20 @@ class AppBreakpoints {
   static const double tablet = 720;
   static const double desktop = 1080;
 
-  static bool isDesktop(BuildContext context) => MediaQuery.sizeOf(context).width >= desktop;
-  static bool isTablet(BuildContext context) => MediaQuery.sizeOf(context).width >= tablet;
+  static bool isDesktop(BuildContext context) =>
+      MediaQuery.sizeOf(context).width >= desktop;
+  static bool isTablet(BuildContext context) =>
+      MediaQuery.sizeOf(context).width >= tablet;
+}
+
+/// Many "brand" colors (primary navy, secondary navy, sapphire accent) are
+/// tuned to pop against the light Ivory background and go near-invisible as
+/// an icon/chip tint on the app's dark background, which is itself a very
+/// close navy. Route icon/accent colors picked from [AppColors] through this
+/// so they lighten automatically in dark mode instead of blending into it.
+Color onSurfaceAccent(BuildContext context, Color color) {
+  if (Theme.of(context).brightness != Brightness.dark) return color;
+  return Color.lerp(color, Colors.white, 0.45) ?? color;
 }
 
 /// Semantic text styles matching the app's typography scale (Plus Jakarta
@@ -84,14 +100,22 @@ class AppBreakpoints {
 class AppTextStyles {
   AppTextStyles._();
 
-  static TextStyle get pageTitle => GoogleFonts.plusJakartaSans(fontSize: 24, fontWeight: FontWeight.w700);
-  static TextStyle get sectionHeading => GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.w600);
-  static TextStyle get cardTitle => GoogleFonts.plusJakartaSans(fontSize: 16, fontWeight: FontWeight.w600);
-  static TextStyle get body => GoogleFonts.plusJakartaSans(fontSize: 14.5, fontWeight: FontWeight.w400);
-  static TextStyle get label => GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w500);
-  static TextStyle get small => GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w400);
-  static TextStyle get button => GoogleFonts.plusJakartaSans(fontSize: 15, fontWeight: FontWeight.w600);
-  static TextStyle get importantAmount => GoogleFonts.plusJakartaSans(fontSize: 24, fontWeight: FontWeight.w700);
+  static TextStyle get pageTitle =>
+      GoogleFonts.plusJakartaSans(fontSize: 24, fontWeight: FontWeight.w700);
+  static TextStyle get sectionHeading =>
+      GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.w600);
+  static TextStyle get cardTitle =>
+      GoogleFonts.plusJakartaSans(fontSize: 16, fontWeight: FontWeight.w600);
+  static TextStyle get body =>
+      GoogleFonts.plusJakartaSans(fontSize: 14.5, fontWeight: FontWeight.w400);
+  static TextStyle get label =>
+      GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w500);
+  static TextStyle get small =>
+      GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w400);
+  static TextStyle get button =>
+      GoogleFonts.plusJakartaSans(fontSize: 15, fontWeight: FontWeight.w600);
+  static TextStyle get importantAmount =>
+      GoogleFonts.plusJakartaSans(fontSize: 24, fontWeight: FontWeight.w700);
 }
 
 class AppTheme {
@@ -111,17 +135,24 @@ class AppTheme {
       error: AppColors.danger,
       onError: Colors.white,
       surface: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
-      onSurface: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+      onSurface: isDark
+          ? AppColors.textPrimaryDark
+          : AppColors.textPrimaryLight,
     );
 
     // One typeface across the whole app (Web, Android & iOS) — Plus Jakarta
     // Sans — so every platform reads as the same product.
-    final bodyText = GoogleFonts.plusJakartaSansTextTheme(
-      isDark ? ThemeData.dark().textTheme : ThemeData.light().textTheme,
-    ).apply(
-      bodyColor: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
-      displayColor: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
-    );
+    final bodyText =
+        GoogleFonts.plusJakartaSansTextTheme(
+          isDark ? ThemeData.dark().textTheme : ThemeData.light().textTheme,
+        ).apply(
+          bodyColor: isDark
+              ? AppColors.textPrimaryDark
+              : AppColors.textPrimaryLight,
+          displayColor: isDark
+              ? AppColors.textPrimaryDark
+              : AppColors.textPrimaryLight,
+        );
 
     final textTheme = bodyText.copyWith(
       headlineSmall: GoogleFonts.plusJakartaSans(
@@ -170,25 +201,39 @@ class AppTheme {
       useMaterial3: true,
       brightness: brightness,
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: isDark ? AppColors.backgroundDark : AppColors.backgroundLight,
+      scaffoldBackgroundColor: isDark
+          ? AppColors.backgroundDark
+          : AppColors.backgroundLight,
       textTheme: textTheme,
       appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        foregroundColor: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
-        titleTextStyle: textTheme.titleLarge?.copyWith(fontSize: 20, fontWeight: FontWeight.w700),
+        foregroundColor: isDark
+            ? AppColors.textPrimaryDark
+            : AppColors.textPrimaryLight,
+        titleTextStyle: textTheme.titleLarge?.copyWith(
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+        ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: isDark ? AppColors.surfaceDark : Colors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 16,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.input),
-          borderSide: BorderSide(color: isDark ? AppColors.borderDark : AppColors.border),
+          borderSide: BorderSide(
+            color: isDark ? AppColors.borderDark : AppColors.border,
+          ),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.input),
-          borderSide: BorderSide(color: isDark ? AppColors.borderDark : AppColors.border),
+          borderSide: BorderSide(
+            color: isDark ? AppColors.borderDark : AppColors.border,
+          ),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.input),
@@ -202,22 +247,34 @@ class AppTheme {
           borderRadius: BorderRadius.circular(AppRadius.input),
           borderSide: const BorderSide(color: AppColors.danger, width: 1.6),
         ),
-        labelStyle: TextStyle(color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight),
-        hintStyle: TextStyle(color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight),
+        labelStyle: TextStyle(
+          color: isDark
+              ? AppColors.textSecondaryDark
+              : AppColors.textSecondaryLight,
+        ),
+        hintStyle: TextStyle(
+          color: isDark
+              ? AppColors.textSecondaryDark
+              : AppColors.textSecondaryLight,
+        ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
           minimumSize: const Size.fromHeight(52),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.button)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.button),
+          ),
           textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           minimumSize: const Size.fromHeight(50),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.button)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.button),
+          ),
           textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
         ),
       ),
@@ -239,19 +296,27 @@ class AppTheme {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.card),
-          side: BorderSide(color: isDark ? AppColors.borderDark : AppColors.border),
+          side: BorderSide(
+            color: isDark ? AppColors.borderDark : AppColors.border,
+          ),
         ),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: isDark ? AppColors.surfaceDark : Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.dialog)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.dialog),
+        ),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        backgroundColor: isDark ? AppColors.surfaceDark : AppColors.textPrimaryLight,
+        backgroundColor: isDark
+            ? AppColors.surfaceDark
+            : AppColors.textPrimaryLight,
       ),
-      dividerTheme: DividerThemeData(color: isDark ? AppColors.borderDark : AppColors.border),
+      dividerTheme: DividerThemeData(
+        color: isDark ? AppColors.borderDark : AppColors.border,
+      ),
     );
   }
 }

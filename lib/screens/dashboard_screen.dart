@@ -897,6 +897,7 @@ class _QuickActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = onSurfaceAccent(context, color);
     return Material(
       color: Theme.of(context).cardColor,
       borderRadius: BorderRadius.circular(18),
@@ -917,10 +918,10 @@ class _QuickActionCard extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
+                  color: accent.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, color: color, size: 20),
+                child: Icon(icon, color: accent, size: 20),
               ),
               Text(
                 label,

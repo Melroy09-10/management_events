@@ -581,6 +581,7 @@ class _FormSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = onSurfaceAccent(context, AppColors.primary);
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -597,10 +598,10 @@ class _FormSection extends StatelessWidget {
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
+                  color: accent.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, size: 18, color: AppColors.primary),
+                child: Icon(icon, size: 18, color: accent),
               ),
               const SizedBox(width: 10),
               Text(

@@ -51,11 +51,16 @@ class PersonDataScreen extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.people_outline_rounded, size: 56, color: AppColors.textSecondaryLight),
+                      Icon(
+                        Icons.people_outline_rounded,
+                        size: 56,
+                        color: AppColors.textSecondaryLight,
+                      ),
                       const SizedBox(height: 12),
                       Text(
                         'No people added yet',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                     ],
                   ),
@@ -67,7 +72,8 @@ class PersonDataScreen extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
               itemCount: people.length,
               separatorBuilder: (_, _) => const SizedBox(height: 10),
-              itemBuilder: (context, index) => _PersonTile(person: people[index]),
+              itemBuilder: (context, index) =>
+                  _PersonTile(person: people[index]),
             );
           },
         ),
@@ -82,6 +88,7 @@ class _PersonTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = onSurfaceAccent(context, AppColors.primary);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
@@ -92,10 +99,13 @@ class _PersonTile extends StatelessWidget {
       child: ListTile(
         contentPadding: EdgeInsets.zero,
         leading: CircleAvatar(
-          backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-          child: Icon(Icons.person_rounded, color: AppColors.primary),
+          backgroundColor: accent.withValues(alpha: 0.12),
+          child: Icon(Icons.person_rounded, color: accent),
         ),
-        title: Text(person.name, style: const TextStyle(fontWeight: FontWeight.w700)),
+        title: Text(
+          person.name,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
         subtitle: Text(person.phone),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
@@ -124,7 +134,9 @@ class _PersonTile extends StatelessWidget {
       await context.read<DataService>().deletePerson(person.id);
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not delete: $e')));
       }
     }
   }
@@ -157,7 +169,9 @@ class _PersonFormSheetState extends State<_PersonFormSheet> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.existing?.name ?? '');
-    _phoneController = TextEditingController(text: widget.existing?.phone ?? '');
+    _phoneController = TextEditingController(
+      text: widget.existing?.phone ?? '',
+    );
   }
 
   @override
@@ -179,14 +193,20 @@ class _PersonFormSheetState extends State<_PersonFormSheet> {
       if (widget.existing == null) {
         await dataService.addPerson(name: name, phone: phone);
       } else {
-        await dataService.updatePerson(widget.existing!.id, name: name, phone: phone);
+        await dataService.updatePerson(
+          widget.existing!.id,
+          name: name,
+          phone: phone,
+        );
       }
       if (!mounted) return;
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not save: $e')));
     }
   }
 
@@ -194,7 +214,9 @@ class _PersonFormSheetState extends State<_PersonFormSheet> {
   Widget build(BuildContext context) {
     final isEditing = widget.existing != null;
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
         decoration: BoxDecoration(
@@ -212,12 +234,17 @@ class _PersonFormSheetState extends State<_PersonFormSheet> {
                   width: 40,
                   height: 4,
                   margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2)),
+                  decoration: BoxDecoration(
+                    color: Colors.black12,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
               Text(
                 isEditing ? 'Edit Person' : 'Add Person',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 20),
               AppTextField(
@@ -225,7 +252,8 @@ class _PersonFormSheetState extends State<_PersonFormSheet> {
                 label: 'Name *',
                 icon: Icons.person_outline_rounded,
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty) return 'Name is required';
+                  if (value == null || value.trim().isEmpty)
+                    return 'Name is required';
                   return null;
                 },
               ),
@@ -240,12 +268,17 @@ class _PersonFormSheetState extends State<_PersonFormSheet> {
                 validator: (value) {
                   final trimmed = value?.trim() ?? '';
                   if (trimmed.isEmpty) return 'Phone number is required';
-                  if (trimmed.length != 10) return 'Enter a valid 10-digit phone number';
+                  if (trimmed.length != 10)
+                    return 'Enter a valid 10-digit phone number';
                   return null;
                 },
               ),
               const SizedBox(height: 20),
-              PrimaryButton(label: isEditing ? 'Update' : 'Save', onPressed: _save, loading: _saving),
+              PrimaryButton(
+                label: isEditing ? 'Update' : 'Save',
+                onPressed: _save,
+                loading: _saving,
+              ),
             ],
           ),
         ),

@@ -15,7 +15,10 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthService>().currentUser!;
-    final incomplete = user.name.trim().isEmpty || user.phone.trim().isEmpty || user.place.trim().isEmpty;
+    final incomplete =
+        user.name.trim().isEmpty ||
+        user.phone.trim().isEmpty ||
+        user.place.trim().isEmpty;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Profile')),
@@ -56,7 +59,10 @@ class _IncompleteBanner extends StatelessWidget {
           Expanded(
             child: Text(
               'Please complete your profile (name, phone & place) to continue using the app.',
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5),
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 12.5,
+              ),
             ),
           ),
         ],
@@ -101,18 +107,29 @@ class _ProfileHeaderCard extends StatelessWidget {
                 Text(
                   user.name.isEmpty ? user.email : user.name,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 17),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 17,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
                     role.label,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 11.5),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11.5,
+                    ),
                   ),
                 ),
               ],
@@ -170,27 +187,14 @@ class _ProfileEditFormState extends State<_ProfileEditForm> {
     setState(() => _saving = false);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(result.success ? 'Profile updated' : (result.error ?? 'Something went wrong'))),
-    );
-  }
-
-  Future<void> _logout() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Log out?'),
-        content: const Text('You will need to sign in again to use the app.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text('Log out', style: TextStyle(color: AppColors.danger)),
-          ),
-        ],
+      SnackBar(
+        content: Text(
+          result.success
+              ? 'Profile updated'
+              : (result.error ?? 'Something went wrong'),
+        ),
       ),
     );
-    if (confirmed != true || !mounted) return;
-    await context.read<AuthService>().logout();
   }
 
   @override
@@ -209,17 +213,28 @@ class _ProfileEditFormState extends State<_ProfileEditForm> {
           children: [
             Text(
               'Email',
-              style: TextStyle(fontSize: 11.5, color: AppColors.textSecondaryLight, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: 11.5,
+                color: AppColors.textSecondaryLight,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 4),
-            Text(widget.user.email, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5)),
+            Text(
+              widget.user.email,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 14.5,
+              ),
+            ),
             const SizedBox(height: 20),
             AppTextField(
               controller: _nameController,
               label: 'Name',
               icon: Icons.person_outline_rounded,
               validator: (value) {
-                if (value == null || value.trim().isEmpty) return 'Name is required';
+                if (value == null || value.trim().isEmpty)
+                  return 'Name is required';
                 return null;
               },
             ),
@@ -234,7 +249,8 @@ class _ProfileEditFormState extends State<_ProfileEditForm> {
               validator: (value) {
                 final trimmed = value?.trim() ?? '';
                 if (trimmed.isEmpty) return 'Phone number is required';
-                if (trimmed.length != 10) return 'Enter a valid 10-digit phone number';
+                if (trimmed.length != 10)
+                  return 'Enter a valid 10-digit phone number';
                 return null;
               },
             ),
@@ -244,23 +260,13 @@ class _ProfileEditFormState extends State<_ProfileEditForm> {
               label: 'Place',
               icon: Icons.location_on_outlined,
               validator: (value) {
-                if (value == null || value.trim().isEmpty) return 'Place is required';
+                if (value == null || value.trim().isEmpty)
+                  return 'Place is required';
                 return null;
               },
             ),
             const SizedBox(height: 20),
             PrimaryButton(label: 'Save', onPressed: _save, loading: _saving),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _logout,
-              icon: Icon(Icons.logout_rounded, color: AppColors.danger),
-              label: Text('Log out', style: TextStyle(color: AppColors.danger)),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(54),
-                side: BorderSide(color: AppColors.danger.withValues(alpha: 0.4)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-            ),
           ],
         ),
       ),

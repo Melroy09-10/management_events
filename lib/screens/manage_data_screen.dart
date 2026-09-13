@@ -62,6 +62,7 @@ class _ManageDataCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = onSurfaceAccent(context, color);
     return Material(
       color: Theme.of(context).cardColor,
       borderRadius: BorderRadius.circular(18),
@@ -80,10 +81,10 @@ class _ManageDataCard extends StatelessWidget {
                 width: 52,
                 height: 52,
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
+                  color: accent.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(icon, color: color, size: 26),
+                child: Icon(icon, color: accent, size: 26),
               ),
               const SizedBox(width: 16),
               Expanded(

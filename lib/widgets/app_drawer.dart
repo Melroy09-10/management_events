@@ -128,20 +128,15 @@ class AppDrawer extends StatelessWidget {
                       ],
               ),
             ),
-            if (isSuperAdmin) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-                child: _DrawerItem(
-                  icon: Icons.logout_rounded,
-                  label: 'Log out',
-                  color: AppColors.danger,
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    context.read<AuthService>().logout();
-                  },
-                ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: _DrawerItem(
+                icon: Icons.logout_rounded,
+                label: 'Log out',
+                color: AppColors.danger,
+                onTap: () => _confirmLogout(context),
               ),
-            ],
+            ),
           ],
         ),
       ),
@@ -155,6 +150,29 @@ class AppDrawer extends StatelessWidget {
         builder: (_) => ComingSoonScreen(title: title, icon: icon),
       ),
     );
+  }
+
+  Future<void> _confirmLogout(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Log out?'),
+        content: const Text('You will need to sign in again to use the app.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text('Log out', style: TextStyle(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    Navigator.of(context).pop();
+    await context.read<AuthService>().logout();
   }
 }
 
@@ -304,6 +322,7 @@ class _SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 16, 10, 8),
       child: Text(
@@ -312,7 +331,9 @@ class _SectionLabel extends StatelessWidget {
           fontSize: 11,
           fontWeight: FontWeight.w800,
           letterSpacing: 0.8,
-          color: AppColors.textSecondaryLight,
+          color: isDark
+              ? AppColors.textSecondaryDark
+              : AppColors.textSecondaryLight,
         ),
       ),
     );
@@ -459,7 +480,7 @@ class _DrawerItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tint = color ?? AppColors.primary;
+    final tint = onSurfaceAccent(context, color ?? AppColors.primary);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Material(
