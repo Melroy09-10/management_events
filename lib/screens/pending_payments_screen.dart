@@ -20,13 +20,7 @@ class PendingPaymentsScreen extends StatelessWidget {
     final dataService = context.read<DataService>();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F4F6),
-      appBar: AppBar(
-        backgroundColor: paymentOrange,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        title: const Text('Pending Payments'),
-      ),
+      appBar: AppBar(title: const Text('Pending Payments')),
       body: StreamBuilder<List<EventBooking>>(
         stream: dataService.pendingPayments(),
         builder: (context, snapshot) {
@@ -54,11 +48,17 @@ class PendingPaymentsScreen extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.payments_outlined, size: 56, color: Colors.black38),
+                    const Icon(
+                      Icons.payments_outlined,
+                      size: 56,
+                      color: AppColors.textSecondaryLight,
+                    ),
                     const SizedBox(height: 12),
                     Text(
                       'No pending payments',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ],
                 ),
@@ -66,16 +66,26 @@ class PendingPaymentsScreen extends StatelessWidget {
             );
           }
 
-          final grandTotal = events.fold<double>(0, (sum, e) => sum + e.amount + e.tips);
-          final personNames = <String>{for (final e in events) e.personName}.toList()..sort();
+          final grandTotal = events.fold<double>(
+            0,
+            (sum, e) => sum + e.amount + e.tips,
+          );
+          final personNames = <String>{
+            for (final e in events) e.personName,
+          }.toList()..sort();
           final grouped = <String, List<EventBooking>>{
-            for (final name in personNames) name: events.where((e) => e.personName == name).toList(),
+            for (final name in personNames)
+              name: events.where((e) => e.personName == name).toList(),
           };
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             children: [
-              _GrandTotalCard(total: grandTotal, eventCount: events.length, personCount: personNames.length),
+              _GrandTotalCard(
+                total: grandTotal,
+                eventCount: events.length,
+                personCount: personNames.length,
+              ),
               for (final name in personNames) ...[
                 const SizedBox(height: 20),
                 _PersonHeader(name: name, events: grouped[name]!),
@@ -97,7 +107,11 @@ class _GrandTotalCard extends StatelessWidget {
   final double total;
   final int eventCount;
   final int personCount;
-  const _GrandTotalCard({required this.total, required this.eventCount, required this.personCount});
+  const _GrandTotalCard({
+    required this.total,
+    required this.eventCount,
+    required this.personCount,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -111,7 +125,11 @@ class _GrandTotalCard extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
-          BoxShadow(color: paymentOrangeDark.withValues(alpha: 0.35), blurRadius: 22, offset: const Offset(0, 12)),
+          BoxShadow(
+            color: paymentOrangeDark.withValues(alpha: 0.35),
+            blurRadius: 22,
+            offset: const Offset(0, 12),
+          ),
         ],
       ),
       child: Row(
@@ -121,11 +139,21 @@ class _GrandTotalCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Grand Total Pending', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 14)),
+                Text(
+                  'Grand Total Pending',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.85),
+                    fontSize: 14,
+                  ),
+                ),
                 const SizedBox(height: 8),
                 Text(
                   formatCurrency(total),
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 34),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 30,
+                  ),
                 ),
               ],
             ),
@@ -134,17 +162,30 @@ class _GrandTotalCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.22), borderRadius: BorderRadius.circular(20)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(20),
+                ),
                 child: Text(
                   '$eventCount events',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
                 ),
               ),
               const SizedBox(height: 10),
               Text(
                 '$personCount ${personCount == 1 ? 'person' : 'persons'}',
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 13),
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.85),
+                  fontSize: 13,
+                ),
               ),
             ],
           ),
@@ -167,25 +208,48 @@ class _PersonHeader extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
           CircleAvatar(
             radius: 26,
             backgroundColor: paymentOrange.withValues(alpha: 0.16),
-            child: Text(initial, style: TextStyle(color: paymentOrangeDark, fontWeight: FontWeight.w800, fontSize: 20)),
+            child: Text(
+              initial,
+              style: TextStyle(
+                color: paymentOrangeDark,
+                fontWeight: FontWeight.w800,
+                fontSize: 20,
+              ),
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Colors.black87)),
+                Text(
+                  name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                    color: AppColors.textPrimaryLight,
+                  ),
+                ),
                 const SizedBox(height: 2),
                 Text(
                   '${events.length} pending payment${events.length == 1 ? '' : 's'}',
-                  style: const TextStyle(color: Colors.black54, fontSize: 13),
+                  style: const TextStyle(
+                    color: AppColors.textSecondaryLight,
+                    fontSize: 13,
+                  ),
                 ),
               ],
             ),
@@ -200,14 +264,23 @@ class _PersonHeader extends StatelessWidget {
     );
   }
 
-  Future<void> _copySummary(BuildContext context, String name, List<EventBooking> events) async {
+  Future<void> _copySummary(
+    BuildContext context,
+    String name,
+    List<EventBooking> events,
+  ) async {
     final choice = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Copy Payments'),
-        content: const Text('Copy every pending payment for this person, or pick specific events?'),
+        content: const Text(
+          'Copy every pending payment for this person, or pick specific events?',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop('select'),
             child: const Text('Select Events'),
@@ -232,11 +305,16 @@ class _PersonHeader extends StatelessWidget {
 
     await Clipboard.setData(ClipboardData(text: _buildSummary(name, chosen)));
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment summary copied')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Payment summary copied')));
     }
   }
 
-  Future<List<EventBooking>?> _pickEvents(BuildContext context, List<EventBooking> events) {
+  Future<List<EventBooking>?> _pickEvents(
+    BuildContext context,
+    List<EventBooking> events,
+  ) {
     final selected = <EventBooking>{};
     return showDialog<List<EventBooking>>(
       context: context,
@@ -252,7 +330,9 @@ class _PersonHeader extends StatelessWidget {
                   value: selected.contains(e),
                   controlAffinity: ListTileControlAffinity.leading,
                   title: Text(e.eventName),
-                  subtitle: Text('${formatEventDate(e.date)} · ${e.shift.label}'),
+                  subtitle: Text(
+                    '${formatEventDate(e.date)} · ${e.shift.label}',
+                  ),
                   onChanged: (checked) {
                     setState(() {
                       if (checked == true) {
@@ -267,9 +347,14 @@ class _PersonHeader extends StatelessWidget {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
             FilledButton(
-              onPressed: selected.isEmpty ? null : () => Navigator.of(dialogContext).pop(selected.toList()),
+              onPressed: selected.isEmpty
+                  ? null
+                  : () => Navigator.of(dialogContext).pop(selected.toList()),
               child: const Text('Copy'),
             ),
           ],
@@ -316,7 +401,11 @@ class _PendingPaymentCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   event.eventName,
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: Colors.black87),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 17,
+                    color: AppColors.textPrimaryLight,
+                  ),
                 ),
               ),
               ShiftBadge(shift: event.shift),
@@ -325,17 +414,34 @@ class _PendingPaymentCard extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              const Icon(Icons.calendar_today_outlined, size: 15, color: Colors.black45),
+              const Icon(
+                Icons.calendar_today_outlined,
+                size: 15,
+                color: AppColors.textSecondaryLight,
+              ),
               const SizedBox(width: 6),
-              Text(formatEventDate(event.date), style: const TextStyle(color: Colors.black54, fontSize: 13)),
+              Text(
+                formatEventDate(event.date),
+                style: const TextStyle(
+                  color: AppColors.textSecondaryLight,
+                  fontSize: 13,
+                ),
+              ),
               const SizedBox(width: 16),
-              const Icon(Icons.location_on_outlined, size: 15, color: Colors.black45),
+              const Icon(
+                Icons.location_on_outlined,
+                size: 15,
+                color: AppColors.textSecondaryLight,
+              ),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   event.location,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.black54, fontSize: 13),
+                  style: const TextStyle(
+                    color: AppColors.textSecondaryLight,
+                    fontSize: 13,
+                  ),
                 ),
               ),
             ],
@@ -348,7 +454,7 @@ class _PendingPaymentCard extends StatelessWidget {
                   label: 'Amount',
                   value: event.amount,
                   background: amountChipBg,
-                  valueColor: Colors.black87,
+                  valueColor: AppColors.textPrimaryLight,
                   onDoubleTap: () => _editAmount(context),
                 ),
               ),
@@ -377,10 +483,18 @@ class _PendingPaymentCard extends StatelessWidget {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: doneGreen,
                       elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
                     icon: const Icon(Icons.check_rounded, color: Colors.white),
-                    label: const Text('Done', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+                    label: const Text(
+                      'Done',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -394,7 +508,9 @@ class _PendingPaymentCard extends StatelessWidget {
                     backgroundColor: paymentOrange,
                     elevation: 0,
                     padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                   child: const Icon(Icons.add_rounded, color: Colors.white),
                 ),
@@ -409,7 +525,9 @@ class _PendingPaymentCard extends StatelessWidget {
                     backgroundColor: deleteChipBg,
                     elevation: 0,
                     padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                   child: const Icon(Icons.close_rounded, color: deleteChipIcon),
                 ),
@@ -422,19 +540,29 @@ class _PendingPaymentCard extends StatelessWidget {
   }
 
   Future<void> _editAmount(BuildContext context) async {
-    final value = await promptForAmount(context, title: 'Amount', initial: event.amount);
+    final value = await promptForAmount(
+      context,
+      title: 'Amount',
+      initial: event.amount,
+    );
     if (value != null) await dataService.updateEventAmount(event.id, value);
   }
 
   Future<void> _editTips(BuildContext context) async {
-    final value = await promptForAmount(context, title: 'Tips', initial: event.tips);
+    final value = await promptForAmount(
+      context,
+      title: 'Tips',
+      initial: event.tips,
+    );
     if (value != null) await dataService.updateEventTips(event.id, value);
   }
 
   Future<void> _markPaid(BuildContext context) async {
     await dataService.markBookingPaid(event.id);
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Marked as paid — moved to History')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Marked as paid — moved to History')),
+      );
     }
   }
 
@@ -443,7 +571,9 @@ class _PendingPaymentCard extends StatelessWidget {
     if (!confirmed || !context.mounted) return;
     await dataService.deleteEventBooking(event.id);
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Event deleted')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Event deleted')));
     }
   }
 }

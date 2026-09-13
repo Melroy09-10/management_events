@@ -4,25 +4,36 @@ import '../models/event_booking.dart';
 import '../theme/app_theme.dart';
 import '../utils/currency.dart';
 
-// A distinct, vivid palette for the payments flow (Pending Payments &
-// History) — deliberately separate from the app's main royal/gold theme.
-const paymentOrange = Color(0xFFFF7A1A);
-const paymentOrangeDark = Color(0xFFE0451A);
-const amountChipBg = Color(0xFFFCE7C2);
-const tipsChipBg = Color(0xFFDFF5E1);
-const tipsChipText = Color(0xFF2E9E4F);
-const totalChipBg = Color(0xFFFDB44B);
-const shiftDayBg = Color(0xFFD7E9FB);
-const shiftDayText = Color(0xFF2472C8);
-const shiftNightBg = Color(0xFFE3D9F7);
-const shiftNightText = Color(0xFF6C3FC5);
-const deleteChipBg = Color(0xFFFAD6D6);
-const deleteChipIcon = Color(0xFFE0453C);
-const doneGreen = Color(0xFF2FAE4E);
+// The payments flow (Dashboard, Pending Payments & History) shares the
+// app's single Royal Navy + Champagne Gold design system — these names are
+// kept as the shared vocabulary for that flow's cards/chips.
+const paymentOrange = AppColors.primary;
+const paymentOrangeDark = AppColors.primaryDark;
+const amountChipBg = Color(0xFFEFF2F6);
+const tipsChipBg = Color(0xFFE3F3EC);
+const tipsChipText = AppColors.success;
+const totalChipBg = AppColors.gold;
+const shiftDayBg = Color(0xFFF6ECC9);
+const shiftDayText = AppColors.goldDark;
+const shiftNightBg = Color(0xFFE3E8F0);
+const shiftNightText = AppColors.secondary;
+const deleteChipBg = Color(0xFFF8E3E0);
+const deleteChipIcon = AppColors.danger;
+const doneGreen = AppColors.success;
 
 const _months = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ];
 
 String formatEventDate(DateTime date) {
@@ -39,8 +50,18 @@ class ShiftBadge extends StatelessWidget {
     final text = shift == Shift.day ? shiftDayText : shiftNightText;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
-      child: Text(shift.label, style: TextStyle(color: text, fontWeight: FontWeight.w700, fontSize: 12.5)),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        shift.label,
+        style: TextStyle(
+          color: text,
+          fontWeight: FontWeight.w700,
+          fontSize: 12.5,
+        ),
+      ),
     );
   }
 }
@@ -69,20 +90,37 @@ class EditableAmountChip extends StatelessWidget {
       onDoubleTap: onDoubleTap,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
-        decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(14)),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(14),
+        ),
         child: Column(
           children: [
             Text(
               label,
-              style: TextStyle(color: AppColors.textSecondaryLight, fontSize: 11.5, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: AppColors.textSecondaryLight,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 4),
-            Text(formatCurrency(value), style: TextStyle(color: valueColor, fontWeight: FontWeight.w800, fontSize: 15.5)),
+            Text(
+              formatCurrency(value),
+              style: TextStyle(
+                color: valueColor,
+                fontWeight: FontWeight.w800,
+                fontSize: 15.5,
+              ),
+            ),
             if (onDoubleTap != null) ...[
               const SizedBox(height: 2),
               Text(
                 'double-tap to edit',
-                style: TextStyle(color: AppColors.textSecondaryLight.withValues(alpha: 0.7), fontSize: 8.5),
+                style: TextStyle(
+                  color: AppColors.textSecondaryLight.withValues(alpha: 0.7),
+                  fontSize: 8.5,
+                ),
               ),
             ],
           ],
@@ -100,12 +138,29 @@ class TotalChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
-      decoration: BoxDecoration(color: totalChipBg, borderRadius: BorderRadius.circular(14)),
+      decoration: BoxDecoration(
+        color: totalChipBg,
+        borderRadius: BorderRadius.circular(14),
+      ),
       child: Column(
         children: [
-          const Text('Total', style: TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w700)),
+          const Text(
+            'Total',
+            style: TextStyle(
+              color: AppColors.primaryDark,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 4),
-          Text(formatCurrency(value), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15.5)),
+          Text(
+            formatCurrency(value),
+            style: const TextStyle(
+              color: AppColors.primaryDark,
+              fontWeight: FontWeight.w800,
+              fontSize: 15.5,
+            ),
+          ),
         ],
       ),
     );
@@ -114,8 +169,14 @@ class TotalChip extends StatelessWidget {
 
 /// Prompts for a currency amount, prefilled with [initial]. Returns null if
 /// cancelled.
-Future<double?> promptForAmount(BuildContext context, {required String title, required double initial}) {
-  final controller = TextEditingController(text: initial > 0 ? _trimTrailingZeros(initial) : '');
+Future<double?> promptForAmount(
+  BuildContext context, {
+  required String title,
+  required double initial,
+}) {
+  final controller = TextEditingController(
+    text: initial > 0 ? _trimTrailingZeros(initial) : '',
+  );
   return showDialog<double>(
     context: context,
     builder: (dialogContext) => AlertDialog(
@@ -124,12 +185,20 @@ Future<double?> promptForAmount(BuildContext context, {required String title, re
         controller: controller,
         autofocus: true,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: const InputDecoration(labelText: 'Amount', prefixIcon: Icon(Icons.currency_rupee_rounded)),
+        decoration: const InputDecoration(
+          labelText: 'Amount',
+          prefixIcon: Icon(Icons.currency_rupee_rounded),
+        ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
-          onPressed: () => Navigator.of(dialogContext).pop(double.tryParse(controller.text.trim()) ?? 0),
+          onPressed: () => Navigator.of(
+            dialogContext,
+          ).pop(double.tryParse(controller.text.trim()) ?? 0),
           child: const Text('Save'),
         ),
       ],
@@ -138,5 +207,7 @@ Future<double?> promptForAmount(BuildContext context, {required String title, re
 }
 
 String _trimTrailingZeros(double value) {
-  return value == value.roundToDouble() ? value.toStringAsFixed(0) : value.toString();
+  return value == value.roundToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toString();
 }

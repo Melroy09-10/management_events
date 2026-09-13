@@ -16,6 +16,16 @@ import '../screens/profile_screen.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 
+/// The first word of a full name, with its first letter capitalized — used
+/// so a long "First Last" (or "First Middle Last") name shows compactly in
+/// the drawer header.
+String _firstName(String fullName) {
+  final parts = fullName.trim().split(RegExp(r'\s+'));
+  final first = parts.isEmpty ? '' : parts.first;
+  if (first.isEmpty) return first;
+  return first[0].toUpperCase() + first.substring(1);
+}
+
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
 
@@ -32,7 +42,7 @@ class AppDrawer extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Container(
-              padding: const EdgeInsets.fromLTRB(20, 28, 20, 24),
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
                   colors: AppColors.heroGradient,
@@ -51,32 +61,23 @@ class AppDrawer extends StatelessWidget {
                   ),
                 ],
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  _ProfileAvatar(role: user.role),
-                  const SizedBox(height: 16),
-                  Text(
-                    user.name,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 19),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 8),
-                  _RoleChip(role: user.role),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Icon(Icons.mail_outline_rounded, size: 14, color: Colors.white.withValues(alpha: 0.85)),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          user.email,
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12.5),
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                  _ProfileAvatar(role: user.role, size: 48),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      _firstName(user.name),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 17,
                       ),
-                    ],
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
+                  const SizedBox(width: 10),
+                  _RoleChip(role: user.role),
                 ],
               ),
             ),
@@ -93,14 +94,20 @@ class AppDrawer extends StatelessWidget {
                           onTap: () {
                             Navigator.of(context).pop();
                             Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const AddEventScreen()),
+                              MaterialPageRoute(
+                                builder: (_) => const AddEventScreen(),
+                              ),
                             );
                           },
                         ),
                         _DrawerItem(
                           icon: Icons.event_note_rounded,
                           label: 'Manage Event',
-                          onTap: () => _open(context, 'Manage Event', Icons.event_note_rounded),
+                          onTap: () => _open(
+                            context,
+                            'Manage Event',
+                            Icons.event_note_rounded,
+                          ),
                         ),
                         _PendingEventsDrawerItem(),
                         _PendingPaymentsDrawerItem(),
@@ -144,7 +151,9 @@ class AppDrawer extends StatelessWidget {
   void _open(BuildContext context, String title, IconData icon) {
     Navigator.of(context).pop();
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => ComingSoonScreen(title: title, icon: icon)),
+      MaterialPageRoute(
+        builder: (_) => ComingSoonScreen(title: title, icon: icon),
+      ),
     );
   }
 }
@@ -154,7 +163,8 @@ class AppDrawer extends StatelessWidget {
 /// the Super Admin.
 class _ProfileAvatar extends StatefulWidget {
   final UserRole role;
-  const _ProfileAvatar({required this.role});
+  final double size;
+  const _ProfileAvatar({required this.role, this.size = 64});
 
   @override
   State<_ProfileAvatar> createState() => _ProfileAvatarState();
@@ -214,7 +224,11 @@ class _ProfileAvatarState extends State<_ProfileAvatar> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(result.success ? 'Request sent to the Super Admin' : (result.error ?? 'Something went wrong')),
+        content: Text(
+          result.success
+              ? 'Request sent to the Super Admin'
+              : (result.error ?? 'Something went wrong'),
+        ),
       ),
     );
   }
@@ -224,14 +238,21 @@ class _ProfileAvatarState extends State<_ProfileAvatar> {
     return GestureDetector(
       onTap: _onTap,
       child: Container(
-        width: 64,
-        height: 64,
+        width: widget.size,
+        height: widget.size,
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.2),
           shape: BoxShape.circle,
-          border: Border.all(color: AppColors.gold.withValues(alpha: 0.75), width: 1.8),
+          border: Border.all(
+            color: AppColors.gold.withValues(alpha: 0.75),
+            width: 1.8,
+          ),
         ),
-        child: Icon(widget.role.icon, color: Colors.white, size: 30),
+        child: Icon(
+          widget.role.icon,
+          color: Colors.white,
+          size: widget.size * 0.47,
+        ),
       ),
     );
   }
@@ -250,7 +271,11 @@ class _RoleChip extends StatelessWidget {
         color: role.color,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
-          BoxShadow(color: role.color.withValues(alpha: 0.45), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(
+            color: role.color.withValues(alpha: 0.45),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
       child: Row(
@@ -260,7 +285,11 @@ class _RoleChip extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             role.label,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11.5),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 11.5,
+            ),
           ),
         ],
       ),
@@ -298,9 +327,9 @@ class _PendingEventsDrawerItem extends StatelessWidget {
       label: 'Pending Events',
       onTap: () {
         Navigator.of(context).pop();
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const PendingEventsScreen()),
-        );
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const PendingEventsScreen()));
       },
     );
   }
@@ -330,9 +359,9 @@ class _HistoryDrawerItem extends StatelessWidget {
       label: 'History',
       onTap: () {
         Navigator.of(context).pop();
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const HistoryScreen()),
-        );
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const HistoryScreen()));
       },
     );
   }
@@ -346,9 +375,9 @@ class _ManageDataDrawerItem extends StatelessWidget {
       label: 'Manage Data',
       onTap: () {
         Navigator.of(context).pop();
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const ManageDataScreen()),
-        );
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const ManageDataScreen()));
       },
     );
   }
@@ -362,9 +391,9 @@ class _ProfileDrawerItem extends StatelessWidget {
       label: 'Profile',
       onTap: () {
         Navigator.of(context).pop();
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const ProfileScreen()),
-        );
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const ProfileScreen()));
       },
     );
   }
@@ -384,11 +413,21 @@ class _AdminRequestsDrawerItem extends StatelessWidget {
           trailing: count == 0
               ? null
               : Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(color: AppColors.danger, borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: Text(
                     '$count',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
           onTap: () {
@@ -410,7 +449,13 @@ class _DrawerItem extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback onTap;
 
-  const _DrawerItem({required this.icon, required this.label, required this.onTap, this.color, this.trailing});
+  const _DrawerItem({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.color,
+    this.trailing,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -440,7 +485,10 @@ class _DrawerItem extends StatelessWidget {
                 Expanded(
                   child: Text(
                     label,
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14.5,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),

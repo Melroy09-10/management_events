@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../widgets/responsive_center.dart';
 import 'event_details_screen.dart';
 import 'person_data_screen.dart';
 
@@ -12,29 +13,32 @@ class ManageDataScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Manage Data')),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            _ManageDataCard(
-              icon: Icons.person_rounded,
-              title: 'Person Data',
-              subtitle: 'Add, edit and remove people',
-              color: AppColors.primary,
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PersonDataScreen()),
+        child: ResponsiveCenter(
+          maxWidth: 640,
+          child: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              _ManageDataCard(
+                icon: Icons.person_rounded,
+                title: 'Person Data',
+                subtitle: 'Add, edit and remove people',
+                color: AppColors.primary,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const PersonDataScreen()),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            _ManageDataCard(
-              icon: Icons.event_note_rounded,
-              title: 'Event Details',
-              subtitle: 'Add, edit and remove events',
-              color: AppColors.secondary,
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const EventDetailsScreen()),
+              const SizedBox(height: 16),
+              _ManageDataCard(
+                icon: Icons.event_note_rounded,
+                title: 'Event Details',
+                subtitle: 'Add, edit and remove events',
+                color: AppColors.secondary,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const EventDetailsScreen()),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -86,13 +90,28 @@ class _ManageDataCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
                     const SizedBox(height: 3),
-                    Text(subtitle, style: TextStyle(color: AppColors.textSecondaryLight, fontSize: 12.5)),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: AppColors.textSecondaryLight,
+                        fontSize: 12.5,
+                      ),
+                    ),
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right_rounded, color: AppColors.textSecondaryLight),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.textSecondaryLight,
+              ),
             ],
           ),
         ),

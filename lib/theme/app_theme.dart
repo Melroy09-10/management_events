@@ -1,41 +1,97 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Central color + typography definitions for the app — a premium,
-/// "royal" palette: deep regal purple paired with warm gold accents.
+/// Central color definitions for the app's single, consistent design
+/// system — a premium "royal" identity: Royal Navy as the main brand color,
+/// Champagne Gold used sparingly as an accent, on a Warm Ivory canvas.
+/// Target visual balance: ~70% ivory/white, ~25% navy, ~5% gold.
 class AppColors {
   AppColors._();
 
-  static const Color primary = Color(0xFF6A3DE8);
-  static const Color primaryDark = Color(0xFF351A6E);
-  static const Color secondary = Color(0xFFB68A2E);
-  static const Color accent = Color(0xFF8E5FF5);
+  static const Color primary = Color(0xFF0B1F3A); // Royal Navy
+  static const Color primaryDark = Color(0xFF071527); // Deeper navy (gradients, pressed states)
+  static const Color secondary = Color(0xFF132D4A); // Secondary Navy
+  static const Color accent = Color(0xFF2C4870); // Sapphire — a lighter navy accent
 
-  // The signature royal gold — used for highlights, glows, and premium CTAs.
-  static const Color gold = Color(0xFFD4AF37);
-  static const Color goldLight = Color(0xFFF1D98B);
+  static const Color gold = Color(0xFFC9A227); // Champagne Gold — use sparingly
+  static const Color goldDark = Color(0xFF9C7B1D);
+  static const Color goldLight = Color(0xFFE9D7A3);
 
-  static const Color backgroundLight = Color(0xFFFAF6EF);
-  static const Color backgroundDark = Color(0xFF120B1E);
-  static const Color surfaceLight = Color(0xFFFFFFFF);
-  static const Color surfaceDark = Color(0xFF1E1533);
+  static const Color backgroundLight = Color(0xFFF8F6F0); // Warm Ivory
+  static const Color backgroundDark = Color(0xFF0A1524);
+  static const Color surfaceLight = Color(0xFFFFFFFF); // Card
+  static const Color surfaceDark = Color(0xFF13233A);
 
-  static const Color textPrimaryLight = Color(0xFF241933);
-  static const Color textSecondaryLight = Color(0xFF6E6280);
-  static const Color textPrimaryDark = Color(0xFFF3EEFA);
-  static const Color textSecondaryDark = Color(0xFFB8ADC9);
+  static const Color textPrimaryLight = Color(0xFF17202A);
+  static const Color textSecondaryLight = Color(0xFF667085);
+  static const Color textPrimaryDark = Color(0xFFF3F1EA);
+  static const Color textSecondaryDark = Color(0xFFA6B0C0);
 
-  static const Color danger = Color(0xFFC0392B);
-  static const Color success = Color(0xFF1F8A5F);
-  static const Color warning = Color(0xFFD9A62E);
+  static const Color border = Color(0xFFE4E7EC);
+  static const Color borderDark = Color(0xFF283449);
 
-  static const List<Color> heroGradient = [primaryDark, primary, Color(0xFF9B6BF2)];
-  static const List<Color> goldGradient = [Color(0xFF8A6215), gold, goldLight];
+  static const Color danger = Color(0xFFB42318);
+  static const Color success = Color(0xFF16805C);
+  static const Color warning = Color(0xFFB7791F);
 
-  // Role colors
-  static const Color superAdmin = Color(0xFFA1266B);
-  static const Color admin = Color(0xFF1B4B91);
-  static const Color member = Color(0xFF1F8A5F);
+  static const List<Color> heroGradient = [primaryDark, primary, secondary];
+  static const List<Color> goldGradient = [goldDark, gold, goldLight];
+
+  // Role colors — kept in the same navy/gold/wine family as the rest of the UI.
+  static const Color superAdmin = Color(0xFF7A2048); // Deep wine
+  static const Color admin = Color(0xFF2C4870); // Sapphire navy
+  static const Color member = Color(0xFF16805C); // Success green
+}
+
+/// The app's 8px base spacing scale. Use these instead of ad-hoc numbers so
+/// spacing stays consistent across every screen.
+class AppSpacing {
+  AppSpacing._();
+
+  static const double xs = 8;
+  static const double sm = 12;
+  static const double md = 16;
+  static const double lg = 20;
+  static const double xl = 24;
+  static const double xxl = 32;
+}
+
+/// Centralized corner radii for the app's premium card/button/input look.
+class AppRadius {
+  AppRadius._();
+
+  static const double input = 12;
+  static const double card = 16;
+  static const double button = 12;
+  static const double dialog = 16;
+}
+
+/// Breakpoints used to adapt layouts across mobile, tablet and desktop/web
+/// while keeping the same visual identity everywhere.
+class AppBreakpoints {
+  AppBreakpoints._();
+
+  static const double tablet = 720;
+  static const double desktop = 1080;
+
+  static bool isDesktop(BuildContext context) => MediaQuery.sizeOf(context).width >= desktop;
+  static bool isTablet(BuildContext context) => MediaQuery.sizeOf(context).width >= tablet;
+}
+
+/// Semantic text styles matching the app's typography scale (Plus Jakarta
+/// Sans throughout). Prefer these over ad-hoc TextStyles for anything that
+/// matches one of these roles.
+class AppTextStyles {
+  AppTextStyles._();
+
+  static TextStyle get pageTitle => GoogleFonts.plusJakartaSans(fontSize: 24, fontWeight: FontWeight.w700);
+  static TextStyle get sectionHeading => GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.w600);
+  static TextStyle get cardTitle => GoogleFonts.plusJakartaSans(fontSize: 16, fontWeight: FontWeight.w600);
+  static TextStyle get body => GoogleFonts.plusJakartaSans(fontSize: 14.5, fontWeight: FontWeight.w400);
+  static TextStyle get label => GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w500);
+  static TextStyle get small => GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w400);
+  static TextStyle get button => GoogleFonts.plusJakartaSans(fontSize: 15, fontWeight: FontWeight.w600);
+  static TextStyle get importantAmount => GoogleFonts.plusJakartaSans(fontSize: 24, fontWeight: FontWeight.w700);
 }
 
 class AppTheme {
@@ -58,31 +114,55 @@ class AppTheme {
       onSurface: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
     );
 
-    final bodyText = GoogleFonts.manropeTextTheme(
+    // One typeface across the whole app (Web, Android & iOS) — Plus Jakarta
+    // Sans — so every platform reads as the same product.
+    final bodyText = GoogleFonts.plusJakartaSansTextTheme(
       isDark ? ThemeData.dark().textTheme : ThemeData.light().textTheme,
     ).apply(
       bodyColor: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
       displayColor: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
     );
 
-    // An elegant serif for headings paired with the clean sans-serif body
-    // font — the classic "premium" typography pairing.
-    final displayColor = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
     final textTheme = bodyText.copyWith(
-      headlineMedium: GoogleFonts.playfairDisplay(
-        textStyle: bodyText.headlineMedium,
-        fontWeight: FontWeight.w700,
-        color: displayColor,
-      ),
-      headlineSmall: GoogleFonts.playfairDisplay(
+      headlineSmall: GoogleFonts.plusJakartaSans(
         textStyle: bodyText.headlineSmall,
+        fontSize: 24,
         fontWeight: FontWeight.w700,
-        color: displayColor,
       ),
-      titleLarge: GoogleFonts.playfairDisplay(
+      titleLarge: GoogleFonts.plusJakartaSans(
         textStyle: bodyText.titleLarge,
+        fontSize: 24,
         fontWeight: FontWeight.w700,
-        color: displayColor,
+      ),
+      titleMedium: GoogleFonts.plusJakartaSans(
+        textStyle: bodyText.titleMedium,
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+      ),
+      titleSmall: GoogleFonts.plusJakartaSans(
+        textStyle: bodyText.titleSmall,
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+      ),
+      bodyMedium: GoogleFonts.plusJakartaSans(
+        textStyle: bodyText.bodyMedium,
+        fontSize: 14.5,
+        fontWeight: FontWeight.w400,
+      ),
+      labelLarge: GoogleFonts.plusJakartaSans(
+        textStyle: bodyText.labelLarge,
+        fontSize: 15,
+        fontWeight: FontWeight.w600,
+      ),
+      labelMedium: GoogleFonts.plusJakartaSans(
+        textStyle: bodyText.labelMedium,
+        fontSize: 13,
+        fontWeight: FontWeight.w500,
+      ),
+      bodySmall: GoogleFonts.plusJakartaSans(
+        textStyle: bodyText.bodySmall,
+        fontSize: 12,
+        fontWeight: FontWeight.w400,
       ),
     );
 
@@ -96,30 +176,30 @@ class AppTheme {
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
-        titleTextStyle: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+        titleTextStyle: textTheme.titleLarge?.copyWith(fontSize: 20, fontWeight: FontWeight.w700),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: isDark ? AppColors.surfaceDark : Colors.white,
         contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: isDark ? Colors.white12 : Colors.black12),
+          borderRadius: BorderRadius.circular(AppRadius.input),
+          borderSide: BorderSide(color: isDark ? AppColors.borderDark : AppColors.border),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: isDark ? Colors.white12 : Colors.black12),
+          borderRadius: BorderRadius.circular(AppRadius.input),
+          borderSide: BorderSide(color: isDark ? AppColors.borderDark : AppColors.border),
         ),
-        focusedBorder: const OutlineInputBorder(
-          borderRadius: BorderRadius.all(Radius.circular(16)),
-          borderSide: BorderSide(color: AppColors.gold, width: 1.8),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.input),
+          borderSide: const BorderSide(color: AppColors.gold, width: 1.8),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(AppRadius.input),
           borderSide: const BorderSide(color: AppColors.danger, width: 1.2),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(AppRadius.input),
           borderSide: const BorderSide(color: AppColors.danger, width: 1.6),
         ),
         labelStyle: TextStyle(color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight),
@@ -129,22 +209,22 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
-          minimumSize: const Size.fromHeight(54),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+          minimumSize: const Size.fromHeight(52),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.button)),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           minimumSize: const Size.fromHeight(50),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.button)),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: AppColors.primary,
-          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
         ),
       ),
       segmentedButtonTheme: SegmentedButtonThemeData(
@@ -158,16 +238,20 @@ class AppTheme {
         color: isDark ? AppColors.surfaceDark : Colors.white,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: AppColors.gold.withValues(alpha: isDark ? 0.14 : 0.16)),
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          side: BorderSide(color: isDark ? AppColors.borderDark : AppColors.border),
         ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: isDark ? AppColors.surfaceDark : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.dialog)),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         backgroundColor: isDark ? AppColors.surfaceDark : AppColors.textPrimaryLight,
       ),
-      dividerTheme: DividerThemeData(color: AppColors.gold.withValues(alpha: isDark ? 0.14 : 0.18)),
+      dividerTheme: DividerThemeData(color: isDark ? AppColors.borderDark : AppColors.border),
     );
   }
 }

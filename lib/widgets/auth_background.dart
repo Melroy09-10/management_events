@@ -20,24 +20,36 @@ class AuthBackground extends StatelessWidget {
               end: Alignment.bottomRight,
               colors: isDark
                   ? [AppColors.backgroundDark, AppColors.backgroundDark]
-                  : [AppColors.backgroundLight, const Color(0xFFEFEBFF)],
+                  : [
+                      AppColors.backgroundLight,
+                      AppColors.goldLight.withValues(alpha: 0.35),
+                    ],
             ),
           ),
         ),
         Positioned(
           top: -80,
           left: -60,
-          child: _blob(AppColors.primary.withValues(alpha: isDark ? 0.28 : 0.35), 220),
+          child: _blob(
+            AppColors.primary.withValues(alpha: isDark ? 0.28 : 0.35),
+            220,
+          ),
         ),
         Positioned(
           bottom: -100,
           right: -80,
-          child: _blob(AppColors.secondary.withValues(alpha: isDark ? 0.22 : 0.3), 260),
+          child: _blob(
+            AppColors.secondary.withValues(alpha: isDark ? 0.22 : 0.3),
+            260,
+          ),
         ),
         Positioned(
           top: 160,
           right: -60,
-          child: _blob(AppColors.accent.withValues(alpha: isDark ? 0.16 : 0.22), 160),
+          child: _blob(
+            AppColors.accent.withValues(alpha: isDark ? 0.16 : 0.22),
+            160,
+          ),
         ),
         SafeArea(child: child),
       ],
