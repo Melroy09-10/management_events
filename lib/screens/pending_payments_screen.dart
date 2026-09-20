@@ -11,6 +11,84 @@ import '../utils/currency.dart';
 import '../widgets/confirm_delete_dialog.dart';
 import '../widgets/payment_chips.dart';
 
+/// Shows [message] (with an optional [subtitle] line) as a plain, non-
+/// interactive floating toast centered on screen — no buttons, no tap
+/// actions — auto-dismissing after 3 seconds.
+void _showCenteredToast(
+  BuildContext context,
+  String message, {
+  String? subtitle,
+}) {
+  final overlay = Overlay.of(context);
+  late OverlayEntry entry;
+
+  entry = OverlayEntry(
+    builder: (context) => Positioned(
+      left: 24,
+      right: 24,
+      top: MediaQuery.of(context).size.height / 2 - 28,
+      child: IgnorePointer(
+        child: Material(
+          color: Colors.transparent,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              decoration: BoxDecoration(
+                color: const Color(0xE6323232),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.25),
+                    blurRadius: 16,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  overlay.insert(entry);
+  Future.delayed(const Duration(seconds: 3), () {
+    if (entry.mounted) entry.remove();
+  });
+}
+
+/// Result of the "Select Events" dialog: events to copy & mark as copied,
+/// and previously-copied events the user unticked (to unmark instead).
+class _EventSelectionResult {
+  final List<EventBooking> toCopy;
+  final List<EventBooking> toUnmark;
+  const _EventSelectionResult({required this.toCopy, required this.toUnmark});
+}
+
 enum _CopyFilter { all, copied, notCopied }
 
 extension on _CopyFilter {
@@ -40,12 +118,6 @@ class PendingPaymentsScreen extends StatefulWidget {
 class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
   _CopyFilter _filter = _CopyFilter.all;
 
-  // The most recent batch of events copied together via "Select Events" —
-  // shown as one group with a single Done button, so the whole batch can be
-  // marked paid together instead of one by one. Not set when "All Events"
-  // is copied instead.
-  List<EventBooking>? _copiedGroup;
-
   // Created once and reused across rebuilds. Calling dataService
   // .pendingPayments() again inside build() would hand StreamBuilder a
   // brand-new Firestore listener on every setState (e.g. right after a
@@ -65,54 +137,6 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
 
   Future<void> _unmarkCopied(Iterable<String> ids, DataService dataService) {
     return dataService.updateEventsCopied(ids, false);
-  }
-
-  void _setCopiedGroup(List<EventBooking> group) {
-    setState(() => _copiedGroup = group);
-  }
-
-  void _clearCopiedGroup() => setState(() => _copiedGroup = null);
-
-  Future<void> _doneGroup(
-    BuildContext context,
-    DataService dataService,
-    List<EventBooking> group,
-  ) async {
-    final n = group.length;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Mark $n copied ${n == 1 ? 'event' : 'events'} as paid?'),
-        content: Text(
-          'This will mark $n ${n == 1 ? 'event' : 'events'} as paid and '
-          'move ${n == 1 ? 'it' : 'them'} to History.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Done'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !context.mounted) return;
-
-    await dataService.markBookingsPaid(group.map((e) => e.id));
-    _clearCopiedGroup();
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '$n ${n == 1 ? 'event' : 'events'} marked as paid — moved to '
-            'History',
-          ),
-        ),
-      );
-    }
   }
 
   @override
@@ -162,8 +186,9 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
                     const SizedBox(height: 12),
                     Text(
                       'No pending payments',
-                      style: Theme.of(context).textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w700),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ],
                 ),
@@ -185,14 +210,6 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
             name: filtered.where((e) => e.personName == name).toList()
               ..sort((a, b) => a.date.compareTo(b.date)),
         };
-
-        // Keep the tracked group in sync with live data (an event marked
-        // paid/deleted elsewhere drops out on its own).
-        final copiedGroupLive = _copiedGroup == null
-            ? const <EventBooking>[]
-            : events
-                  .where((e) => _copiedGroup!.any((g) => g.id == e.id))
-                  .toList();
 
         return Scaffold(
           appBar: AppBar(title: const Text('Pending Payments')),
@@ -244,7 +261,6 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
                                         _markCopied(ids, dataService),
                                     onUndoCopied: (ids) =>
                                         _unmarkCopied(ids, dataService),
-                                    onGroupCopied: _setCopiedGroup,
                                   ),
                                   const SizedBox(height: 12),
                                   for (final event in grouped[name]!)
@@ -270,18 +286,6 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
               ),
             ],
           ),
-          bottomNavigationBar: copiedGroupLive.isEmpty
-              ? null
-              : _CopiedGroupBar(
-                  count: copiedGroupLive.length,
-                  total: copiedGroupLive.fold<double>(
-                    0,
-                    (sum, e) => sum + e.amount + e.tips,
-                  ),
-                  onClear: _clearCopiedGroup,
-                  onDone: () =>
-                      _doneGroup(context, dataService, copiedGroupLive),
-                ),
         );
       },
     );
@@ -305,94 +309,6 @@ class _FilterBar extends StatelessWidget {
         ],
         selected: {filter},
         onSelectionChanged: (selection) => onChanged(selection.first),
-      ),
-    );
-  }
-}
-
-/// Sticky bar shown while a batch of events copied together via "Select
-/// Events" is still pending — offers one confirmed Done button for the
-/// whole group instead of marking each event individually.
-class _CopiedGroupBar extends StatelessWidget {
-  final int count;
-  final double total;
-  final VoidCallback onClear;
-  final VoidCallback onDone;
-  const _CopiedGroupBar({
-    required this.count,
-    required this.total,
-    required this.onClear,
-    required this.onDone,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: paymentOrangeDark,
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                color: paymentOrangeDark.withValues(alpha: 0.35),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '$count copied ${count == 1 ? 'event' : 'events'}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 14,
-                      ),
-                    ),
-                    Text(
-                      formatCurrency(total),
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.85),
-                        fontSize: 12.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              TextButton(
-                onPressed: onClear,
-                style: TextButton.styleFrom(foregroundColor: Colors.white70),
-                child: const Text('Clear'),
-              ),
-              const SizedBox(width: 4),
-              ElevatedButton.icon(
-                onPressed: onDone,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: doneGreen,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                icon: const Icon(Icons.check_rounded, size: 18),
-                label: const Text(
-                  'Done',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -496,13 +412,11 @@ class _PersonHeader extends StatelessWidget {
   final List<EventBooking> events;
   final Future<void> Function(Iterable<String> ids) onCopied;
   final Future<void> Function(Iterable<String> ids) onUndoCopied;
-  final ValueChanged<List<EventBooking>> onGroupCopied;
   const _PersonHeader({
     required this.name,
     required this.events,
     required this.onCopied,
     required this.onUndoCopied,
-    required this.onGroupCopied,
   });
 
   @override
@@ -600,37 +514,59 @@ class _PersonHeader extends StatelessWidget {
     if (choice == null || !context.mounted) return;
 
     List<EventBooking> chosen;
-    var isSelection = false;
+    List<EventBooking> toUnmark = const [];
     if (choice == 'all') {
       chosen = events;
     } else {
       final picked = await _pickEvents(context, events);
-      if (picked == null || picked.isEmpty || !context.mounted) return;
-      chosen = picked;
-      isSelection = true;
+      if (picked == null || !context.mounted) return;
+      if (picked.toCopy.isEmpty && picked.toUnmark.isEmpty) return;
+      chosen = picked.toCopy;
+      toUnmark = picked.toUnmark;
     }
+
+    if (toUnmark.isNotEmpty) {
+      unawaited(
+        onUndoCopied(toUnmark.map((e) => e.id)).catchError((Object e) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Could not update copied status: $e')),
+            );
+          }
+        }),
+      );
+    }
+
+    if (chosen.isEmpty) {
+      // The user only unticked previously-copied events — nothing to copy.
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Marked ${toUnmark.length} ${toUnmark.length == 1 ? 'event' : 'events'} as not copied',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
     chosen = [...chosen]..sort((a, b) => a.date.compareTo(b.date));
 
     await Clipboard.setData(ClipboardData(text: _buildSummary(name, chosen)));
     if (!context.mounted) return;
     final copiedIds = chosen.map((e) => e.id).toList();
-
-    // Only a specifically selected batch becomes a trackable group with its
-    // own single Done button — "Copy All" behaves as before.
-    if (isSelection) onGroupCopied(chosen);
+    final total = chosen.fold<double>(0, (sum, e) => sum + e.amount + e.tips);
 
     // Give feedback immediately — the clipboard copy already happened, so
     // the user shouldn't wait on a network write to know it worked. The
     // "copied" flag is persisted in the background below; a slow or failed
     // write must not make the whole action look stuck.
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Payment summary copied'),
-        action: SnackBarAction(
-          label: 'UNDO',
-          onPressed: () => onUndoCopied(copiedIds),
-        ),
-      ),
+    _showCenteredToast(
+      context,
+      'Payment summary copied',
+      subtitle:
+          '${chosen.length} ${chosen.length == 1 ? 'event' : 'events'} · ${formatCurrency(total)}',
     );
 
     unawaited(
@@ -644,54 +580,82 @@ class _PersonHeader extends StatelessWidget {
     );
   }
 
-  Future<List<EventBooking>?> _pickEvents(
+  Future<_EventSelectionResult?> _pickEvents(
     BuildContext context,
     List<EventBooking> events,
   ) {
-    final selected = <EventBooking>{};
-    return showDialog<List<EventBooking>>(
+    // Events already marked copied start pre-ticked, so the dialog reflects
+    // current state; unticking one and pressing Copy unmarks it instead.
+    final selected = <EventBooking>{...events.where((e) => e.copied)};
+    return showDialog<_EventSelectionResult>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('Select Events'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: ListView(
-              shrinkWrap: true,
-              children: events.map((e) {
-                return CheckboxListTile(
-                  value: selected.contains(e),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  title: Text(e.eventName),
-                  subtitle: Text(
-                    '${formatEventDate(e.date)} · ${e.shift.label}',
-                  ),
-                  onChanged: (checked) {
-                    setState(() {
-                      if (checked == true) {
-                        selected.add(e);
-                      } else {
-                        selected.remove(e);
-                      }
-                    });
-                  },
-                );
-              }).toList(),
+        builder: (context, setState) {
+          final toUnmark = events
+              .where((e) => e.copied && !selected.contains(e))
+              .toList();
+          final canConfirm = selected.isNotEmpty || toUnmark.isNotEmpty;
+
+          return AlertDialog(
+            title: const Text('Select Events'),
+            content: SizedBox(
+              width: double.maxFinite,
+              // A bounded height (rather than shrinkWrap, which breaks
+              // layout when this dialog animates closed) keeps the list
+              // scrollable without crashing on dismiss.
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.5,
+                ),
+                child: ListView(
+                  shrinkWrap: true,
+                  children: events.map((e) {
+                    return CheckboxListTile(
+                      value: selected.contains(e),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      secondary: e.copied
+                          ? const Icon(
+                              Icons.check_circle_rounded,
+                              color: doneGreen,
+                            )
+                          : null,
+                      title: Text(e.eventName),
+                      subtitle: Text(
+                        '${formatEventDate(e.date)} · ${e.shift.label}',
+                      ),
+                      onChanged: (checked) {
+                        setState(() {
+                          if (checked == true) {
+                            selected.add(e);
+                          } else {
+                            selected.remove(e);
+                          }
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: selected.isEmpty
-                  ? null
-                  : () => Navigator.of(dialogContext).pop(selected.toList()),
-              child: const Text('Copy'),
-            ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: canConfirm
+                    ? () => Navigator.of(dialogContext).pop(
+                        _EventSelectionResult(
+                          toCopy: selected.toList(),
+                          toUnmark: toUnmark,
+                        ),
+                      )
+                    : null,
+                child: const Text('Copy'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -730,15 +694,15 @@ class _PendingPaymentCard extends StatelessWidget {
   });
 
   void _undo(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Marked as not copied')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Marked as not copied')));
     unawaited(
       onUndoCopied?.call().catchError((Object e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not update: $e')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Could not update: $e')));
         }
       }),
     );

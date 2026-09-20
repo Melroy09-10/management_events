@@ -23,14 +23,16 @@ class AuthService extends ChangeNotifier {
   final fb.FirebaseAuth _auth = fb.FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  CollectionReference<Map<String, dynamic>> get _usersCollection => _firestore.collection('users');
+  CollectionReference<Map<String, dynamic>> get _usersCollection =>
+      _firestore.collection('users');
   CollectionReference<Map<String, dynamic>> get _adminRequestsCollection =>
       _firestore.collection('admin_requests');
 
   AppUser? _currentUser;
   AuthStatus _status = AuthStatus.unknown;
   StreamSubscription<fb.User?>? _authSubscription;
-  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSubscription;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+  _profileSubscription;
 
   AppUser? get currentUser => _currentUser;
   AuthStatus get status => _status;
@@ -52,16 +54,19 @@ class AuthService extends ChangeNotifier {
 
     // A live subscription (rather than a one-time fetch) so an edit to the
     // user's own profile is reflected immediately across the app.
-    _profileSubscription = _usersCollection.doc(firebaseUser.uid).snapshots().listen((doc) {
-      if (!doc.exists) {
-        _currentUser = null;
-        _status = AuthStatus.unauthenticated;
-      } else {
-        _currentUser = AppUser.fromJson(doc.id, doc.data()!);
-        _status = AuthStatus.authenticated;
-      }
-      notifyListeners();
-    });
+    _profileSubscription = _usersCollection
+        .doc(firebaseUser.uid)
+        .snapshots()
+        .listen((doc) {
+          if (!doc.exists) {
+            _currentUser = null;
+            _status = AuthStatus.unauthenticated;
+          } else {
+            _currentUser = AppUser.fromJson(doc.id, doc.data()!);
+            _status = AuthStatus.authenticated;
+          }
+          notifyListeners();
+        });
   }
 
   Future<AppUser?> _fetchProfile(String uid) async {
@@ -92,15 +97,22 @@ class AuthService extends ChangeNotifier {
 
       // The account is signed in at this point, so these queries run as
       // authenticated reads.
-      final nameMatch = await _usersCollection.where('nameLower', isEqualTo: nameLower).limit(1).get();
+      final nameMatch = await _usersCollection
+          .where('nameLower', isEqualTo: nameLower)
+          .limit(1)
+          .get();
       if (nameMatch.docs.isNotEmpty) {
         await firebaseUser.delete();
-        return const AuthResult.fail('This username is already used. Enter your full name.');
+        return const AuthResult.fail(
+          'This username is already used. Enter your full name.',
+        );
       }
 
       // The very first account becomes Super Admin.
       final existingUsers = await _usersCollection.count().get();
-      final role = (existingUsers.count ?? 0) == 0 ? UserRole.superAdmin : UserRole.member;
+      final role = (existingUsers.count ?? 0) == 0
+          ? UserRole.superAdmin
+          : UserRole.member;
 
       final user = AppUser(
         id: firebaseUser.uid,
@@ -123,11 +135,16 @@ class AuthService extends ChangeNotifier {
       return AuthResult.fail(_messageForAuthError(e));
     } catch (e) {
       await firebaseUser?.delete();
-      return const AuthResult.fail('Could not finish creating your account. Please try again.');
+      return const AuthResult.fail(
+        'Could not finish creating your account. Please try again.',
+      );
     }
   }
 
-  Future<AuthResult> login({required String email, required String password}) async {
+  Future<AuthResult> login({
+    required String email,
+    required String password,
+  }) async {
     final normalizedEmail = email.trim().toLowerCase();
 
     try {
@@ -144,6 +161,18 @@ class AuthService extends ChangeNotifier {
       _currentUser = profile;
       _status = AuthStatus.authenticated;
       notifyListeners();
+      return const AuthResult.ok();
+    } on fb.FirebaseAuthException catch (e) {
+      return AuthResult.fail(_messageForAuthError(e));
+    }
+  }
+
+  /// Sends a Firebase password-reset email to [email]. The user follows the
+  /// link in that email to set a new password; nothing changes locally here.
+  Future<AuthResult> resetPassword({required String email}) async {
+    final normalizedEmail = email.trim().toLowerCase();
+    try {
+      await _auth.sendPasswordResetEmail(email: normalizedEmail);
       return const AuthResult.ok();
     } on fb.FirebaseAuthException catch (e) {
       return AuthResult.fail(_messageForAuthError(e));
@@ -172,7 +201,9 @@ class AuthService extends ChangeNotifier {
       });
       return const AuthResult.ok();
     } catch (e) {
-      return const AuthResult.fail('Could not update your profile. Please try again.');
+      return const AuthResult.fail(
+        'Could not update your profile. Please try again.',
+      );
     }
   }
 
@@ -185,7 +216,9 @@ class AuthService extends ChangeNotifier {
 
     final existing = await _adminRequestsCollection.doc(user.id).get();
     if (existing.exists) {
-      final status = AdminRequestStatusX.fromStorage(existing.data()!['status'] as String);
+      final status = AdminRequestStatusX.fromStorage(
+        existing.data()!['status'] as String,
+      );
       if (status == AdminRequestStatus.pending) {
         return const AuthResult.fail('You already have a pending request.');
       }
@@ -206,8 +239,12 @@ class AuthService extends ChangeNotifier {
   Stream<AdminRequest?> myAdminRequest() {
     final user = _currentUser;
     if (user == null) return Stream.value(null);
-    return _adminRequestsCollection.doc(user.id).snapshots().map(
-          (doc) => doc.exists ? AdminRequest.fromJson(doc.id, doc.data()!) : null,
+    return _adminRequestsCollection
+        .doc(user.id)
+        .snapshots()
+        .map(
+          (doc) =>
+              doc.exists ? AdminRequest.fromJson(doc.id, doc.data()!) : null,
         );
   }
 
@@ -216,12 +253,18 @@ class AuthService extends ChangeNotifier {
     return _adminRequestsCollection
         .where('status', isEqualTo: AdminRequestStatus.pending.storageValue)
         .snapshots()
-        .map((snap) => snap.docs.map((d) => AdminRequest.fromJson(d.id, d.data())).toList());
+        .map(
+          (snap) => snap.docs
+              .map((d) => AdminRequest.fromJson(d.id, d.data()))
+              .toList(),
+        );
   }
 
   Future<void> approveAdminRequest(AdminRequest request) async {
     final batch = _firestore.batch();
-    batch.update(_usersCollection.doc(request.userId), {'role': UserRole.admin.storageValue});
+    batch.update(_usersCollection.doc(request.userId), {
+      'role': UserRole.admin.storageValue,
+    });
     batch.update(_adminRequestsCollection.doc(request.id), {
       'status': AdminRequestStatus.approved.storageValue,
     });
