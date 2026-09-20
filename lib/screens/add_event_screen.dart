@@ -7,9 +7,9 @@ import '../models/event_type.dart';
 import '../models/person.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
-import '../utils/currency.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/responsive_center.dart';
+import '../widgets/searchable_dropdown_field.dart';
 
 const _months = [
   'Jan',
@@ -25,6 +25,14 @@ const _months = [
   'Nov',
   'Dec',
 ];
+
+/// Plain editable representation of a currency amount (no symbol or digit
+/// grouping) — used to seed the Amount field so the user can type over it.
+String _plainAmountText(double amount) {
+  return amount == amount.roundToDouble()
+      ? amount.toStringAsFixed(0)
+      : amount.toString();
+}
 
 /// Books an event on a given date & shift, pulling Address and Amount
 /// automatically from the matching Event Details (Manage Data) record.
@@ -69,7 +77,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
       _selectedPersonId = existing.personId;
       _selectedPersonName = existing.personName;
       _locationController.text = existing.location;
-      _amountController.text = formatCurrency(existing.amount);
+      _amountController.text = _plainAmountText(existing.amount);
       _loadExistingMatchedRecord();
     }
   }
@@ -84,9 +92,12 @@ class _AddEventScreenState extends State<AddEventScreen> {
     setState(() {
       _matchedRecord = record;
       _loadingRecord = false;
+      // Amount is left untouched here: it already holds this booking's own
+      // saved amount (set in initState), which may have been edited away
+      // from the Event Details default — opening Edit must not silently
+      // replace it with the current master Day/Night amount.
       if (record != null) {
         _locationController.text = record.location;
-        _refreshAmountField();
       }
     });
   }
@@ -147,7 +158,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
     final amount = _shift == Shift.day
         ? _matchedRecord!.dayAmount
         : _matchedRecord!.nightAmount;
-    _amountController.text = formatCurrency(amount);
+    _amountController.text = _plainAmountText(amount);
   }
 
   Future<void> _pickDate() async {
@@ -192,6 +203,11 @@ class _AddEventScreenState extends State<AddEventScreen> {
       );
       return;
     }
+    final amount = double.tryParse(_amountController.text.trim());
+    if (amount == null || amount <= 0) {
+      _showMessage('Enter a valid Amount');
+      return;
+    }
 
     setState(() => _saving = true);
     final dataService = context.read<DataService>();
@@ -199,10 +215,22 @@ class _AddEventScreenState extends State<AddEventScreen> {
     final excludingId = widget.existing?.id;
 
     try {
-      final belongsToType = await dataService.eventNameBelongsToType(
-        _selectedTypeId!,
-        _selectedEventName!,
-      );
+      final results = await Future.wait([
+        dataService.eventNameBelongsToType(
+          _selectedTypeId!,
+          _selectedEventName!,
+        ),
+        dataService.checkBookingSlot(
+          eventType: _selectedTypeName!,
+          eventName: _selectedEventName!,
+          date: _date!,
+          shift: _shift!,
+          excludingId: excludingId,
+        ),
+      ]);
+      final belongsToType = results[0] as bool;
+      final slotCheck = results[1] as BookingSlotCheck;
+
       if (!belongsToType) {
         setState(() => _saving = false);
         messenger.showSnackBar(
@@ -215,14 +243,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
         return;
       }
 
-      final isDuplicate = await dataService.isDuplicateBooking(
-        eventType: _selectedTypeName!,
-        eventName: _selectedEventName!,
-        date: _date!,
-        shift: _shift!,
-        excludingId: excludingId,
-      );
-      if (isDuplicate) {
+      if (slotCheck.isDuplicate) {
         setState(() => _saving = false);
         messenger.showSnackBar(
           const SnackBar(
@@ -234,12 +255,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
         return;
       }
 
-      final slotTaken = await dataService.hasBookingForDateAndShift(
-        date: _date!,
-        shift: _shift!,
-        excludingId: excludingId,
-      );
-      if (slotTaken) {
+      if (slotCheck.slotTaken) {
         setState(() => _saving = false);
         messenger.showSnackBar(
           const SnackBar(
@@ -251,9 +267,6 @@ class _AddEventScreenState extends State<AddEventScreen> {
         return;
       }
 
-      final amount = _shift == Shift.day
-          ? _matchedRecord!.dayAmount
-          : _matchedRecord!.nightAmount;
       final booking = EventBooking(
         id: widget.existing?.id ?? '',
         eventTypeId: _selectedTypeId!,
@@ -267,6 +280,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
         amount: amount,
         tips: widget.existing?.tips ?? 0,
         status: widget.existing?.status ?? BookingStatus.upcoming,
+        copied: widget.existing?.copied ?? false,
       );
 
       if (_isEditing) {
@@ -352,217 +366,287 @@ class _AddEventScreenState extends State<AddEventScreen> {
                 ? _selectedEventName
                 : null;
 
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: ResponsiveCenter(
-                maxWidth: 640,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _FormSection(
-                      title: 'Contact Information',
-                      icon: Icons.contact_phone_outlined,
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth > 480;
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.all(14),
+                  child: ResponsiveCenter(
+                    maxWidth: 640,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        StreamBuilder<List<Person>>(
-                          stream: dataService.people(),
-                          builder: (context, personSnapshot) {
-                            final people =
-                                personSnapshot.data ?? const <Person>[];
-                            if (people.isEmpty) {
-                              return Container(
-                                padding: const EdgeInsets.all(14),
-                                decoration: BoxDecoration(
-                                  color: AppColors.warning.withValues(
-                                    alpha: 0.12,
-                                  ),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: const Text(
-                                  'No people found. Add one from Manage Data → Person Data first.',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 12.5,
-                                  ),
-                                ),
-                              );
-                            }
-
-                            final personValue =
-                                people.any((p) => p.id == _selectedPersonId)
-                                ? _selectedPersonId
-                                : null;
-                            return DropdownMenu<String>(
-                              key: ValueKey('person-$personValue'),
-                              initialSelection: personValue,
-                              expandedInsets: EdgeInsets.zero,
-                              enableFilter: true,
-                              requestFocusOnTap: true,
-                              label: const Text('Person Who Called *'),
-                              leadingIcon: const Icon(Icons.call_outlined),
-                              hintText: 'Search a person…',
-                              dropdownMenuEntries: people
-                                  .map(
-                                    (p) => DropdownMenuEntry(
-                                      value: p.id,
-                                      label: p.name,
+                        _FormSection(
+                          title: 'Contact Information',
+                          icon: Icons.contact_phone_outlined,
+                          children: [
+                            StreamBuilder<List<Person>>(
+                              stream: dataService.people(),
+                              builder: (context, personSnapshot) {
+                                final people =
+                                    personSnapshot.data ?? const <Person>[];
+                                if (people.isEmpty) {
+                                  return Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.warning.withValues(
+                                        alpha: 0.12,
+                                      ),
+                                      borderRadius: BorderRadius.circular(14),
                                     ),
-                                  )
-                                  .toList(),
-                              onSelected: (value) {
-                                final matches = people.where(
-                                  (p) => p.id == value,
-                                );
-                                setState(() {
-                                  _selectedPersonId = value;
-                                  _selectedPersonName = matches.isEmpty
-                                      ? null
-                                      : matches.first.name;
-                                });
-                              },
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _FormSection(
-                      title: 'Event Information',
-                      icon: Icons.event_note_rounded,
-                      children: [
-                        DropdownButtonFormField<String>(
-                          initialValue: _selectedTypeId,
-                          decoration: const InputDecoration(
-                            labelText: 'Event Type *',
-                            prefixIcon: Icon(Icons.category_outlined),
-                          ),
-                          items: types
-                              .map(
-                                (t) => DropdownMenuItem(
-                                  value: t.id,
-                                  child: Text(t.name),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (value) {
-                            final matches = types.where((t) => t.id == value);
-                            _onTypeChanged(
-                              matches.isEmpty ? null : matches.first,
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        DropdownButtonFormField<String>(
-                          initialValue: eventNameValue,
-                          decoration: const InputDecoration(
-                            labelText: 'Event Name *',
-                            prefixIcon: Icon(Icons.label_outline_rounded),
-                          ),
-                          items: eventNames
-                              .map(
-                                (n) =>
-                                    DropdownMenuItem(value: n, child: Text(n)),
-                              )
-                              .toList(),
-                          onChanged: _selectedTypeId == null
-                              ? null
-                              : _onEventNameChanged,
-                        ),
-                        const SizedBox(height: 16),
-                        InkWell(
-                          borderRadius: BorderRadius.circular(16),
-                          onTap: _pickDate,
-                          child: InputDecorator(
-                            decoration: const InputDecoration(
-                              labelText: 'Date *',
-                              prefixIcon: Icon(Icons.calendar_today_outlined),
-                            ),
-                            child: Text(
-                              _date == null
-                                  ? 'Select date'
-                                  : _formatDate(_date!),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          'Shift *',
-                          style: Theme.of(context).textTheme.labelLarge
-                              ?.copyWith(fontWeight: FontWeight.w700),
-                        ),
-                        const SizedBox(height: 8),
-                        SegmentedButton<Shift>(
-                          segments: const [
-                            ButtonSegment(
-                              value: Shift.day,
-                              label: Text('Day'),
-                              icon: Icon(Icons.wb_sunny_outlined),
-                            ),
-                            ButtonSegment(
-                              value: Shift.night,
-                              label: Text('Night'),
-                              icon: Icon(Icons.nightlight_outlined),
-                            ),
-                          ],
-                          selected: _shift == null
-                              ? <Shift>{}
-                              : <Shift>{_shift!},
-                          emptySelectionAllowed: true,
-                          onSelectionChanged: (selection) => _onShiftChanged(
-                            selection.isEmpty ? null : selection.first,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _FormSection(
-                      title: 'Event Details',
-                      icon: Icons.receipt_long_outlined,
-                      children: [
-                        TextFormField(
-                          controller: _locationController,
-                          enabled: false,
-                          decoration: InputDecoration(
-                            labelText: 'Address / Location (auto-filled)',
-                            prefixIcon: const Icon(Icons.location_on_outlined),
-                            suffixIcon: _loadingRecord
-                                ? const Padding(
-                                    padding: EdgeInsets.all(14),
-                                    child: SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+                                    child: const Text(
+                                      'No people found. Add one from Manage Data → Person Data first.',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12.5,
                                       ),
                                     ),
-                                  )
-                                : null,
-                          ),
+                                  );
+                                }
+
+                                final personValue =
+                                    people.any((p) => p.id == _selectedPersonId)
+                                    ? _selectedPersonId
+                                    : null;
+                                return SearchableDropdownField<String>(
+                                  key: ValueKey('person-$personValue'),
+                                  value: personValue,
+                                  label: 'Person Who Called *',
+                                  icon: Icons.call_outlined,
+                                  hintText: 'Search a person…',
+                                  options: [
+                                    for (final p in people)
+                                      SearchableDropdownOption(
+                                        value: p.id,
+                                        label: p.name,
+                                      ),
+                                  ],
+                                  onSelected: (value) {
+                                    final matches = people.where(
+                                      (p) => p.id == value,
+                                    );
+                                    setState(() {
+                                      _selectedPersonId = value;
+                                      _selectedPersonName = matches.isEmpty
+                                          ? null
+                                          : matches.first.name;
+                                    });
+                                  },
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        _FormSection(
+                          title: 'Event Information',
+                          icon: Icons.event_note_rounded,
+                          children: [
+                            _ResponsiveFieldRow(
+                              isWide: isWide,
+                              spacing: 12,
+                              children: [
+                                SearchableDropdownField<String>(
+                                  key: ValueKey('type-$_selectedTypeId'),
+                                  value: _selectedTypeId,
+                                  label: 'Event Type *',
+                                  icon: Icons.category_outlined,
+                                  hintText: 'Search an event type…',
+                                  options: [
+                                    for (final t in types)
+                                      SearchableDropdownOption(
+                                        value: t.id,
+                                        label: t.name,
+                                      ),
+                                  ],
+                                  onSelected: (value) {
+                                    final matches = types.where(
+                                      (t) => t.id == value,
+                                    );
+                                    _onTypeChanged(
+                                      matches.isEmpty ? null : matches.first,
+                                    );
+                                  },
+                                ),
+                                SearchableDropdownField<String>(
+                                  key: ValueKey(
+                                    'name-$_selectedTypeId-$eventNameValue',
+                                  ),
+                                  value: eventNameValue,
+                                  label: 'Event Name *',
+                                  icon: Icons.label_outline_rounded,
+                                  hintText: 'Search an event name…',
+                                  enabled: _selectedTypeId != null,
+                                  options: [
+                                    for (final n in eventNames)
+                                      SearchableDropdownOption(
+                                        value: n,
+                                        label: n,
+                                      ),
+                                  ],
+                                  onSelected: _selectedTypeId == null
+                                      ? (_) {}
+                                      : _onEventNameChanged,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            _ResponsiveFieldRow(
+                              isWide: isWide,
+                              spacing: 12,
+                              children: [
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(16),
+                                  onTap: _pickDate,
+                                  child: InputDecorator(
+                                    decoration: const InputDecoration(
+                                      labelText: 'Date *',
+                                      prefixIcon: Icon(
+                                        Icons.calendar_today_outlined,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      _date == null
+                                          ? 'Select date'
+                                          : _formatDate(_date!),
+                                    ),
+                                  ),
+                                ),
+                                Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      'Shift *',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelLarge
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    SegmentedButton<Shift>(
+                                      segments: const [
+                                        ButtonSegment(
+                                          value: Shift.day,
+                                          label: Text('Day'),
+                                          icon: Icon(Icons.wb_sunny_outlined),
+                                        ),
+                                        ButtonSegment(
+                                          value: Shift.night,
+                                          label: Text('Night'),
+                                          icon: Icon(Icons.nightlight_outlined),
+                                        ),
+                                      ],
+                                      selected: _shift == null
+                                          ? <Shift>{}
+                                          : <Shift>{_shift!},
+                                      emptySelectionAllowed: true,
+                                      onSelectionChanged: (selection) =>
+                                          _onShiftChanged(
+                                            selection.isEmpty
+                                                ? null
+                                                : selection.first,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        _FormSection(
+                          title: 'Event Details',
+                          icon: Icons.receipt_long_outlined,
+                          children: [
+                            TextFormField(
+                              controller: _amountController,
+                              enabled: _matchedRecord != null,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: InputDecoration(
+                                labelText: 'Amount *',
+                                prefixIcon: const Icon(
+                                  Icons.currency_rupee_rounded,
+                                ),
+                                suffixIcon: _loadingRecord
+                                    ? const Padding(
+                                        padding: EdgeInsets.all(14),
+                                        child: SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _amountController,
-                          enabled: false,
-                          decoration: const InputDecoration(
-                            labelText: 'Amount (auto-filled)',
-                            prefixIcon: Icon(Icons.currency_rupee_rounded),
-                          ),
+                        PrimaryButton(
+                          label: _isEditing ? 'Update Event' : 'Save Event',
+                          onPressed: _save,
+                          loading: _saving,
                         ),
+                        const SizedBox(height: 8),
                       ],
                     ),
-                    const SizedBox(height: 28),
-                    PrimaryButton(
-                      label: _isEditing ? 'Update Event' : 'Save Event',
-                      onPressed: _save,
-                      loading: _saving,
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             );
           },
         ),
       ),
+    );
+  }
+}
+
+/// Lays [children] out in a [Row] with [Expanded] cells (equally sized,
+/// separated by [spacing]) when [isWide] is true, or stacked vertically with
+/// [spacing] gaps otherwise — used to fit paired fields (Event Type/Name,
+/// Date/Shift) on one line on wider screens while staying single-column and
+/// uncramped on narrow phones.
+class _ResponsiveFieldRow extends StatelessWidget {
+  final bool isWide;
+  final double spacing;
+  final List<Widget> children;
+
+  const _ResponsiveFieldRow({
+    required this.isWide,
+    required this.spacing,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (isWide) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) SizedBox(width: spacing),
+            Expanded(child: children[i]),
+          ],
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < children.length; i++) ...[
+          if (i > 0) SizedBox(height: spacing),
+          children[i],
+        ],
+      ],
     );
   }
 }
@@ -583,10 +667,10 @@ class _FormSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = onSurfaceAccent(context, AppColors.primary);
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Colors.black12.withValues(alpha: 0.06)),
       ),
       child: Column(
@@ -595,25 +679,25 @@ class _FormSection extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 34,
-                height: 34,
+                width: 26,
+                height: 26,
                 decoration: BoxDecoration(
                   color: accent.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(icon, size: 18, color: accent),
+                child: Icon(icon, size: 14, color: accent),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Text(
                 title,
                 style: const TextStyle(
                   fontWeight: FontWeight.w800,
-                  fontSize: 15,
+                  fontSize: 13.5,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           ...children,
         ],
       ),

@@ -9,6 +9,7 @@ import '../utils/currency.dart';
 import '../widgets/app_text_field.dart';
 import '../widgets/confirm_delete_dialog.dart';
 import '../widgets/primary_button.dart';
+import '../widgets/searchable_dropdown_field.dart';
 
 const _addNewValue = '__add_new__';
 
@@ -481,33 +482,25 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                         _selectedTypeId != null &&
                         types.any((t) => t.id == _selectedTypeId);
 
-                    return DropdownButtonFormField<String>(
-                      initialValue: hasSelected ? _selectedTypeId : null,
-                      decoration: const InputDecoration(
-                        labelText: 'Event Type *',
-                        prefixIcon: Icon(Icons.category_outlined),
+                    return SearchableDropdownField<String>(
+                      key: ValueKey(
+                        'type-${hasSelected ? _selectedTypeId : null}',
                       ),
-                      items: [
-                        ...types.map(
-                          (t) => DropdownMenuItem(
-                            value: t.id,
-                            child: Text(t.name),
-                          ),
-                        ),
-                        const DropdownMenuItem(
+                      value: hasSelected ? _selectedTypeId : null,
+                      label: 'Event Type *',
+                      icon: Icons.category_outlined,
+                      hintText: 'Search an event type…',
+                      options: [
+                        for (final t in types)
+                          SearchableDropdownOption(value: t.id, label: t.name),
+                        const SearchableDropdownOption(
                           value: _addNewValue,
-                          child: Row(
-                            children: [
-                              Icon(Icons.add_rounded, size: 18),
-                              SizedBox(width: 6),
-                              Text('Add new type'),
-                            ],
-                          ),
+                          label: 'Add new type',
+                          leading: Icon(Icons.add_rounded, size: 18),
+                          alwaysVisible: true,
                         ),
                       ],
-                      validator: (_) =>
-                          _selectedTypeId == null ? 'Required' : null,
-                      onChanged: (value) {
+                      onSelected: (value) {
                         if (value == _addNewValue) {
                           _promptForName(
                             title: 'New Event Type',
@@ -540,31 +533,27 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                         _selectedEventName != null &&
                         names.contains(_selectedEventName);
 
-                    return DropdownButtonFormField<String>(
-                      initialValue: hasSelected ? _selectedEventName : null,
-                      decoration: const InputDecoration(
-                        labelText: 'Event Name *',
-                        prefixIcon: Icon(Icons.label_outline_rounded),
+                    return SearchableDropdownField<String>(
+                      key: ValueKey(
+                        'name-$_selectedTypeId-${hasSelected ? _selectedEventName : null}',
                       ),
-                      items: [
-                        ...names.map(
-                          (n) => DropdownMenuItem(value: n, child: Text(n)),
-                        ),
-                        const DropdownMenuItem(
+                      value: hasSelected ? _selectedEventName : null,
+                      label: 'Event Name *',
+                      icon: Icons.label_outline_rounded,
+                      hintText: 'Search an event name…',
+                      enabled: _selectedTypeId != null,
+                      options: [
+                        for (final n in names)
+                          SearchableDropdownOption(value: n, label: n),
+                        const SearchableDropdownOption(
                           value: _addNewValue,
-                          child: Row(
-                            children: [
-                              Icon(Icons.add_rounded, size: 18),
-                              SizedBox(width: 6),
-                              Text('Add new name'),
-                            ],
-                          ),
+                          label: 'Add new name',
+                          leading: Icon(Icons.add_rounded, size: 18),
+                          alwaysVisible: true,
                         ),
                       ],
-                      validator: (_) =>
-                          _selectedEventName == null ? 'Required' : null,
-                      onChanged: _selectedTypeId == null
-                          ? null
+                      onSelected: _selectedTypeId == null
+                          ? (_) {}
                           : (value) {
                               if (value == _addNewValue) {
                                 _promptForName(

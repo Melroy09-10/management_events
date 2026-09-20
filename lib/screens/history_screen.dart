@@ -9,6 +9,7 @@ import '../utils/currency.dart';
 import '../widgets/confirm_delete_dialog.dart';
 import '../widgets/payment_chips.dart';
 import '../widgets/responsive_center.dart';
+import '../widgets/searchable_dropdown_field.dart';
 
 final _monthKeyFormat = DateFormat('yyyy-MM');
 final _monthLabelFormat = DateFormat('MMM yyyy');
@@ -170,31 +171,26 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           Row(
                             children: [
                               Expanded(
-                                child: DropdownButtonFormField<String?>(
-                                  initialValue: _monthFilter,
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Month',
-                                    prefixIcon: Icon(
-                                      Icons.calendar_month_outlined,
-                                    ),
-                                  ),
-                                  items: [
-                                    const DropdownMenuItem(
+                                child: SearchableDropdownField<String?>(
+                                  key: ValueKey('month-$_monthFilter'),
+                                  value: _monthFilter,
+                                  label: 'Month',
+                                  icon: Icons.calendar_month_outlined,
+                                  hintText: 'Search a month…',
+                                  options: [
+                                    const SearchableDropdownOption<String?>(
                                       value: null,
-                                      child: Text('All months'),
+                                      label: 'All months',
                                     ),
                                     for (final month in months)
-                                      DropdownMenuItem(
+                                      SearchableDropdownOption<String?>(
                                         value: month,
-                                        child: Text(
-                                          _monthLabelFormat.format(
-                                            DateTime.parse('$month-01'),
-                                          ),
+                                        label: _monthLabelFormat.format(
+                                          DateTime.parse('$month-01'),
                                         ),
                                       ),
                                   ],
-                                  onChanged: (value) => setState(() {
+                                  onSelected: (value) => setState(() {
                                     _monthFilter = value;
                                     _showFilteredDetails = false;
                                   }),
@@ -202,25 +198,24 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               ),
                               const SizedBox(width: 12),
                               Expanded(
-                                child: DropdownButtonFormField<String?>(
-                                  initialValue: _eventTypeFilter,
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Event Type',
-                                    prefixIcon: Icon(Icons.category_outlined),
-                                  ),
-                                  items: [
-                                    const DropdownMenuItem(
+                                child: SearchableDropdownField<String?>(
+                                  key: ValueKey('type-$_eventTypeFilter'),
+                                  value: _eventTypeFilter,
+                                  label: 'Event Type',
+                                  icon: Icons.category_outlined,
+                                  hintText: 'Search an event type…',
+                                  options: [
+                                    const SearchableDropdownOption<String?>(
                                       value: null,
-                                      child: Text('All events'),
+                                      label: 'All events',
                                     ),
                                     for (final type in eventTypes)
-                                      DropdownMenuItem(
+                                      SearchableDropdownOption<String?>(
                                         value: type,
-                                        child: Text(type),
+                                        label: type,
                                       ),
                                   ],
-                                  onChanged: (value) => setState(() {
+                                  onSelected: (value) => setState(() {
                                     _eventTypeFilter = value;
                                     _showFilteredDetails = false;
                                   }),

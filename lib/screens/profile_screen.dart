@@ -81,12 +81,16 @@ class _ProfileHeaderCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
+        color: Colors.white,
         borderRadius: BorderRadius.circular(22),
-        gradient: LinearGradient(
-          colors: [role.color, role.color.withValues(alpha: 0.7)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        border: Border.all(color: AppColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -94,10 +98,10 @@ class _ProfileHeaderCard extends StatelessWidget {
             width: 56,
             height: 56,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
+              color: role.color.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
-            child: Icon(role.icon, color: Colors.white, size: 28),
+            child: Icon(role.icon, color: role.color, size: 28),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -108,7 +112,7 @@ class _ProfileHeaderCard extends StatelessWidget {
                   user.name.isEmpty ? user.email : user.name,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: AppColors.textPrimaryLight,
                     fontWeight: FontWeight.w800,
                     fontSize: 17,
                   ),
@@ -120,13 +124,13 @@ class _ProfileHeaderCard extends StatelessWidget {
                     vertical: 3,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
+                    color: role.color.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
                     role.label,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: role.color,
                       fontWeight: FontWeight.w700,
                       fontSize: 11.5,
                     ),

@@ -827,17 +827,14 @@ class _RoleBadgeCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
+        color: Colors.white,
         borderRadius: BorderRadius.circular(22),
-        gradient: LinearGradient(
-          colors: [role.color, role.color.withValues(alpha: 0.7)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        border: Border.all(color: AppColors.border),
         boxShadow: [
           BoxShadow(
-            color: role.color.withValues(alpha: 0.35),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -847,10 +844,10 @@ class _RoleBadgeCard extends StatelessWidget {
             width: 56,
             height: 56,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
+              color: role.color.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
-            child: Icon(role.icon, color: Colors.white, size: 28),
+            child: Icon(role.icon, color: role.color, size: 28),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -859,8 +856,8 @@ class _RoleBadgeCard extends StatelessWidget {
               children: [
                 Text(
                   role.label,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: role.color,
                     fontWeight: FontWeight.w800,
                     fontSize: 18,
                   ),
@@ -868,8 +865,8 @@ class _RoleBadgeCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   email,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.9),
+                  style: const TextStyle(
+                    color: AppColors.textSecondaryLight,
                     fontSize: 13,
                   ),
                 ),

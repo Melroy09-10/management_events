@@ -8,6 +8,7 @@ import '../models/user_role.dart';
 import '../screens/add_event_screen.dart';
 import '../screens/admin_requests_screen.dart';
 import '../screens/coming_soon_screen.dart';
+import '../screens/dashboard_screen.dart';
 import '../screens/history_screen.dart';
 import '../screens/manage_data_screen.dart';
 import '../screens/pending_events_screen.dart';
@@ -27,7 +28,11 @@ String _firstName(String fullName) {
 }
 
 class AppDrawer extends StatelessWidget {
-  const AppDrawer({super.key});
+  /// When true, only the header (avatar/name/role) and Log out are shown —
+  /// used by the Admin Dashboard, which is its own separate space reached by
+  /// double-tapping the "Admin" role chip, without the regular nav menu.
+  final bool minimal;
+  const AppDrawer({super.key, this.minimal = false});
 
   @override
   Widget build(BuildContext context) {
@@ -77,56 +82,79 @@ class AppDrawer extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  _RoleChip(role: user.role),
+                  if (user.role == UserRole.admin)
+                    GestureDetector(
+                      onDoubleTap: () {
+                        Navigator.of(context).pop(); // close the drawer
+                        if (minimal) {
+                          // On the Admin Dashboard (home) — switch to the
+                          // regular member-style dashboard.
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const DashboardScreen(),
+                            ),
+                          );
+                        } else {
+                          // On the regular dashboard (pushed on top of the
+                          // Admin Dashboard) — switch back to it.
+                          Navigator.of(context).pop();
+                        }
+                      },
+                      child: _RoleChip(role: user.role),
+                    )
+                  else
+                    _RoleChip(role: user.role),
                 ],
               ),
             ),
             const SizedBox(height: 12),
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                children: isSuperAdmin
-                    ? [
-                        const _SectionLabel('MENU'),
-                        _DrawerItem(
-                          icon: Icons.add_circle_outline_rounded,
-                          label: 'Add Event',
-                          onTap: () {
-                            Navigator.of(context).pop();
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const AddEventScreen(),
+              child: minimal
+                  ? const SizedBox.shrink()
+                  : ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      children: isSuperAdmin
+                          ? [
+                              const _SectionLabel('MENU'),
+                              _DrawerItem(
+                                icon: Icons.add_circle_outline_rounded,
+                                label: 'Add Event',
+                                onTap: () {
+                                  Navigator.of(context).pop();
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => const AddEventScreen(),
+                                    ),
+                                  );
+                                },
                               ),
-                            );
-                          },
-                        ),
-                        _DrawerItem(
-                          icon: Icons.event_note_rounded,
-                          label: 'Manage Event',
-                          onTap: () => _open(
-                            context,
-                            'Manage Event',
-                            Icons.event_note_rounded,
-                          ),
-                        ),
-                        _PendingEventsDrawerItem(),
-                        _PendingPaymentsDrawerItem(),
-                        _HistoryDrawerItem(),
-                        _ManageDataDrawerItem(),
-                        const _SectionLabel('ADMIN'),
-                        _AdminRequestsDrawerItem(),
-                        const _SectionLabel('ACCOUNT'),
-                        _ProfileDrawerItem(),
-                      ]
-                    : [
-                        const _SectionLabel('MENU'),
-                        _PendingEventsDrawerItem(),
-                        _PendingPaymentsDrawerItem(),
-                        _HistoryDrawerItem(),
-                        _ManageDataDrawerItem(),
-                        _ProfileDrawerItem(),
-                      ],
-              ),
+                              _DrawerItem(
+                                icon: Icons.event_note_rounded,
+                                label: 'Manage Event',
+                                onTap: () => _open(
+                                  context,
+                                  'Manage Event',
+                                  Icons.event_note_rounded,
+                                ),
+                              ),
+                              _PendingEventsDrawerItem(),
+                              _PendingPaymentsDrawerItem(),
+                              _HistoryDrawerItem(),
+                              _ManageDataDrawerItem(),
+                              const _SectionLabel('ADMIN'),
+                              _AdminRequestsDrawerItem(),
+                              const _SectionLabel('ACCOUNT'),
+                              _ProfileDrawerItem(),
+                            ]
+                          : [
+                              const _SectionLabel('MENU'),
+                              _PendingEventsDrawerItem(),
+                              _PendingPaymentsDrawerItem(),
+                              _HistoryDrawerItem(),
+                              _ManageDataDrawerItem(),
+                              _ProfileDrawerItem(),
+                            ],
+                    ),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
@@ -286,11 +314,11 @@ class _RoleChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
       decoration: BoxDecoration(
-        color: role.color,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: role.color.withValues(alpha: 0.45),
+            color: Colors.black.withValues(alpha: 0.12),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -299,12 +327,12 @@ class _RoleChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(role.icon, size: 13, color: Colors.white),
+          Icon(role.icon, size: 13, color: role.color),
           const SizedBox(width: 5),
           Text(
             role.label,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: role.color,
               fontWeight: FontWeight.w800,
               fontSize: 11.5,
             ),

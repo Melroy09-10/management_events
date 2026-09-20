@@ -41,6 +41,7 @@ class EventBooking {
   final double amount;
   final double tips;
   final BookingStatus status;
+  final bool copied;
 
   const EventBooking({
     required this.id,
@@ -55,6 +56,7 @@ class EventBooking {
     required this.amount,
     this.tips = 0,
     this.status = BookingStatus.upcoming,
+    this.copied = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -69,6 +71,7 @@ class EventBooking {
         'amount': amount,
         'tips': tips,
         'status': status.storageValue,
+        'copied': copied,
       };
 
   factory EventBooking.fromJson(String id, Map<String, dynamic> json) => EventBooking(
@@ -84,5 +87,6 @@ class EventBooking {
         amount: (json['amount'] as num).toDouble(),
         tips: (json['tips'] as num?)?.toDouble() ?? 0,
         status: BookingStatusX.fromStorage(json['status'] as String?),
+        copied: json['copied'] as bool? ?? false,
       );
 }

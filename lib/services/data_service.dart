@@ -6,6 +6,13 @@ import '../models/event_record.dart';
 import '../models/event_type.dart';
 import '../models/person.dart';
 
+/// Result of [DataService.checkBookingSlot].
+class BookingSlotCheck {
+  final bool isDuplicate;
+  final bool slotTaken;
+  const BookingSlotCheck({required this.isDuplicate, required this.slotTaken});
+}
+
 /// Backs the Manage Data feature (Person Data & Event Details) with
 /// Cloud Firestore. Every collection is nested under the signed-in user's
 /// own `users/{uid}` document, so each Firebase account has completely
@@ -155,10 +162,13 @@ class DataService {
 
   // --- Add Event (bookings) ---
 
-  /// Whether the exact same Event Type + Event Name + Date + Shift has
-  /// already been booked. [excludingId] lets an edit check for duplicates
-  /// without flagging itself.
-  Future<bool> isDuplicateBooking({
+  /// Runs the "already booked" checks for Add Event in a single Firestore
+  /// fetch instead of two: whether the exact same Event Type + Event Name +
+  /// Date + Shift is already booked, and whether any event at all already
+  /// occupies that date & shift (a user may have at most one Day and one
+  /// Night event per date). [excludingId] lets an edit check without
+  /// flagging itself.
+  Future<BookingSlotCheck> checkBookingSlot({
     required String eventType,
     required String eventName,
     required DateTime date,
@@ -169,29 +179,20 @@ class DataService {
     final normalizedName = eventName.trim().toLowerCase();
 
     final snapshot = await _eventBookingsCollection.where('shift', isEqualTo: shift.storageValue).get();
-    return snapshot.docs.any((doc) {
-      if (doc.id == excludingId) return false;
+    var isDuplicate = false;
+    var slotTaken = false;
+    for (final doc in snapshot.docs) {
+      if (doc.id == excludingId) continue;
       final data = doc.data();
-      if (!_isSameDate((data['date'] as Timestamp).toDate(), date)) return false;
+      if (!_isSameDate((data['date'] as Timestamp).toDate(), date)) continue;
+      slotTaken = true;
       final existingType = (data['eventType'] as String).trim().toLowerCase();
       final existingName = (data['eventName'] as String).trim().toLowerCase();
-      return existingType == normalizedType && existingName == normalizedName;
-    });
-  }
-
-  /// Whether any event (regardless of type/name) is already booked for this
-  /// date & shift. A user may have at most one Day and one Night event per
-  /// date. [excludingId] lets an edit check without flagging itself.
-  Future<bool> hasBookingForDateAndShift({
-    required DateTime date,
-    required Shift shift,
-    String? excludingId,
-  }) async {
-    final snapshot = await _eventBookingsCollection.where('shift', isEqualTo: shift.storageValue).get();
-    return snapshot.docs.any((doc) {
-      if (doc.id == excludingId) return false;
-      return _isSameDate((doc.data()['date'] as Timestamp).toDate(), date);
-    });
+      if (existingType == normalizedType && existingName == normalizedName) {
+        isDuplicate = true;
+      }
+    }
+    return BookingSlotCheck(isDuplicate: isDuplicate, slotTaken: slotTaken);
   }
 
   bool _isSameDate(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
@@ -281,6 +282,18 @@ class DataService {
     });
   }
 
+  /// Marks many bookings as paid at once, for Pending Payments' "Done All"
+  /// bulk action.
+  Future<void> markBookingsPaid(Iterable<String> bookingIds) {
+    final batch = _firestore.batch();
+    for (final id in bookingIds) {
+      batch.update(_eventBookingsCollection.doc(id), {
+        'status': BookingStatus.paid.storageValue,
+      });
+    }
+    return batch.commit();
+  }
+
   /// Updates just the Amount on a booking, editable at any time.
   Future<void> updateEventAmount(String bookingId, double amount) {
     return _eventBookingsCollection.doc(bookingId).update({'amount': amount});
@@ -289,5 +302,22 @@ class DataService {
   /// Updates just the Tips amount on a booking, editable at any time.
   Future<void> updateEventTips(String bookingId, double tips) {
     return _eventBookingsCollection.doc(bookingId).update({'tips': tips});
+  }
+
+  /// Updates whether a booking has been copied (Pending Payments' Copied /
+  /// Not Copied filter), persisted so it survives navigating away and
+  /// reopening the app.
+  Future<void> updateEventCopied(String bookingId, bool copied) {
+    return _eventBookingsCollection.doc(bookingId).update({'copied': copied});
+  }
+
+  /// Bulk version of [updateEventCopied], used when marking/undoing several
+  /// bookings as copied at once.
+  Future<void> updateEventsCopied(Iterable<String> bookingIds, bool copied) {
+    final batch = _firestore.batch();
+    for (final id in bookingIds) {
+      batch.update(_eventBookingsCollection.doc(id), {'copied': copied});
+    }
+    return batch.commit();
   }
 }

@@ -25,7 +25,7 @@ class AppRoot extends StatelessWidget {
         Provider(create: (_) => DataService()),
       ],
       child: MaterialApp(
-        title: 'Auth App',
+        title: 'My Event Manager',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,

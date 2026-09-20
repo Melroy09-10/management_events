@@ -53,6 +53,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   flutter_native_splash: ^2.4.7
+  flutter_launcher_icons: ^0.14.4
 
 # firebase_core_web 3.11.0 on pub.dev calls e.isA<JSObject>() in a catch (e)
 # block, which only compiles on Dart >=3.12. Firebase already fixed this on
@@ -109,16 +110,30 @@ flutter:
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
 
+flutter_launcher_icons:
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  image_path: "assets/branding/logo.png"
+  adaptive_icon_background: "#F8F6F0"
+  adaptive_icon_foreground: "assets/branding/logo.png"
+  min_sdk_android: 21
+  web:
+    generate: true
+    image_path: "assets/branding/logo.png"
+    background_color: "#F8F6F0"
+    theme_color: "#F8F6F0"
+
 flutter_native_splash:
-  color: "0B1F3A"
+  color: "F8F6F0"
   image: assets/branding/logo.png
-  color_dark: "0B1F3A"
+  color_dark: "F8F6F0"
   image_dark: assets/branding/logo.png
 
   android_12:
-    color: "0B1F3A"
+    color: "F8F6F0"
     image: assets/branding/logo.png
-    color_dark: "0B1F3A"
+    color_dark: "F8F6F0"
     image_dark: assets/branding/logo.png
 
   web: true
