@@ -52,7 +52,6 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
-  flutter_native_splash: ^2.4.7
   flutter_launcher_icons: ^0.14.4
 
 # firebase_core_web 3.11.0 on pub.dev calls e.isA<JSObject>() in a catch (e)
@@ -123,17 +122,3 @@ flutter_launcher_icons:
     image_path: "assets/branding/logo.png"
     background_color: "#F8F6F0"
     theme_color: "#F8F6F0"
-
-flutter_native_splash:
-  color: "F8F6F0"
-  image: assets/branding/logo.png
-  color_dark: "F8F6F0"
-  image_dark: assets/branding/logo.png
-
-  android_12:
-    color: "F8F6F0"
-    image: assets/branding/logo.png
-    color_dark: "F8F6F0"
-    image_dark: assets/branding/logo.png
-
-  web: true

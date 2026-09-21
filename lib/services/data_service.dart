@@ -21,18 +21,27 @@ class DataService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   String get _uid => fb.FirebaseAuth.instance.currentUser!.uid;
-  DocumentReference<Map<String, dynamic>> get _ownerDoc => _firestore.collection('users').doc(_uid);
+  DocumentReference<Map<String, dynamic>> get _ownerDoc =>
+      _firestore.collection('users').doc(_uid);
 
-  CollectionReference<Map<String, dynamic>> get _peopleCollection => _ownerDoc.collection('people');
-  CollectionReference<Map<String, dynamic>> get _eventTypesCollection => _ownerDoc.collection('event_types');
-  CollectionReference<Map<String, dynamic>> get _eventsCollection => _ownerDoc.collection('events');
-  CollectionReference<Map<String, dynamic>> get _eventBookingsCollection => _ownerDoc.collection('event_bookings');
+  CollectionReference<Map<String, dynamic>> get _peopleCollection =>
+      _ownerDoc.collection('people');
+  CollectionReference<Map<String, dynamic>> get _eventTypesCollection =>
+      _ownerDoc.collection('event_types');
+  CollectionReference<Map<String, dynamic>> get _eventsCollection =>
+      _ownerDoc.collection('events');
+  CollectionReference<Map<String, dynamic>> get _eventBookingsCollection =>
+      _ownerDoc.collection('event_bookings');
 
   // --- Person Data ---
 
   Stream<List<Person>> people() {
-    return _peopleCollection.orderBy('name').snapshots().map(
-          (snap) => snap.docs.map((d) => Person.fromJson(d.id, d.data())).toList(),
+    return _peopleCollection
+        .orderBy('name')
+        .snapshots()
+        .map(
+          (snap) =>
+              snap.docs.map((d) => Person.fromJson(d.id, d.data())).toList(),
         );
   }
 
@@ -40,7 +49,11 @@ class DataService {
     return _peopleCollection.add({'name': name, 'phone': phone});
   }
 
-  Future<void> updatePerson(String id, {required String name, required String phone}) {
+  Future<void> updatePerson(
+    String id, {
+    required String name,
+    required String phone,
+  }) {
     return _peopleCollection.doc(id).update({'name': name, 'phone': phone});
   }
 
@@ -51,8 +64,12 @@ class DataService {
   // --- Event types (the Event Type -> Event Name taxonomy) ---
 
   Stream<List<EventType>> eventTypes() {
-    return _eventTypesCollection.orderBy('name').snapshots().map(
-          (snap) => snap.docs.map((d) => EventType.fromJson(d.id, d.data())).toList(),
+    return _eventTypesCollection
+        .orderBy('name')
+        .snapshots()
+        .map(
+          (snap) =>
+              snap.docs.map((d) => EventType.fromJson(d.id, d.data())).toList(),
         );
   }
 
@@ -71,7 +88,10 @@ class DataService {
       }
     }
 
-    final doc = await _eventTypesCollection.add({'name': trimmed, 'eventNames': <String>[]});
+    final doc = await _eventTypesCollection.add({
+      'name': trimmed,
+      'eventNames': <String>[],
+    });
     return (doc.id, trimmed);
   }
 
@@ -83,7 +103,9 @@ class DataService {
     final normalized = trimmed.toLowerCase();
 
     final doc = await _eventTypesCollection.doc(eventTypeId).get();
-    final existingNames = List<String>.from(doc.data()?['eventNames'] as List? ?? const []);
+    final existingNames = List<String>.from(
+      doc.data()?['eventNames'] as List? ?? const [],
+    );
     for (final existing in existingNames) {
       if (existing.trim().toLowerCase() == normalized) return existing;
     }
@@ -95,17 +117,27 @@ class DataService {
   }
 
   /// Whether [eventName] is registered under the given event type.
-  Future<bool> eventNameBelongsToType(String eventTypeId, String eventName) async {
+  Future<bool> eventNameBelongsToType(
+    String eventTypeId,
+    String eventName,
+  ) async {
     final doc = await _eventTypesCollection.doc(eventTypeId).get();
-    final names = List<String>.from(doc.data()?['eventNames'] as List? ?? const []);
+    final names = List<String>.from(
+      doc.data()?['eventNames'] as List? ?? const [],
+    );
     return names.contains(eventName);
   }
 
   // --- Event Details ---
 
   Stream<List<EventRecord>> events() {
-    return _eventsCollection.orderBy('eventType').snapshots().map(
-          (snap) => snap.docs.map((d) => EventRecord.fromJson(d.id, d.data())).toList(),
+    return _eventsCollection
+        .orderBy('eventType')
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((d) => EventRecord.fromJson(d.id, d.data()))
+              .toList(),
         );
   }
 
@@ -178,7 +210,9 @@ class DataService {
     final normalizedType = eventType.trim().toLowerCase();
     final normalizedName = eventName.trim().toLowerCase();
 
-    final snapshot = await _eventBookingsCollection.where('shift', isEqualTo: shift.storageValue).get();
+    final snapshot = await _eventBookingsCollection
+        .where('shift', isEqualTo: shift.storageValue)
+        .get();
     var isDuplicate = false;
     var slotTaken = false;
     for (final doc in snapshot.docs) {
@@ -195,7 +229,8 @@ class DataService {
     return BookingSlotCheck(isDuplicate: isDuplicate, slotTaken: slotTaken);
   }
 
-  bool _isSameDate(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+  bool _isSameDate(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 
   Future<void> addEventBooking(EventBooking booking) {
     return _eventBookingsCollection.add(booking.toJson());
@@ -207,6 +242,33 @@ class DataService {
 
   Future<void> deleteEventBooking(String id) {
     return _eventBookingsCollection.doc(id).delete();
+  }
+
+  /// Records that a newly-created Member account has been allocated to work
+  /// [eventId], for the Add Members / Allocation page.
+  Future<void> assignMemberToEvent(
+    String eventId, {
+    required String memberId,
+    required String memberName,
+  }) {
+    return _eventBookingsCollection.doc(eventId).update({
+      'assignedMembers': FieldValue.arrayUnion([
+        {'id': memberId, 'name': memberName},
+      ]),
+    });
+  }
+
+  /// Allocates several existing Member/Admin accounts to [eventId] in one
+  /// write, for picking multiple people at once from the existing roster.
+  Future<void> assignMembersToEvent(
+    String eventId, {
+    required List<({String id, String name})> members,
+  }) {
+    return _eventBookingsCollection.doc(eventId).update({
+      'assignedMembers': FieldValue.arrayUnion([
+        for (final m in members) {'id': m.id, 'name': m.name},
+      ]),
+    });
   }
 
   /// Still-upcoming events booked on [date], for the Today's Events
@@ -235,10 +297,12 @@ class DataService {
         .where('status', isEqualTo: BookingStatus.upcoming.storageValue)
         .snapshots()
         .map((snap) {
-      final events = snap.docs.map((d) => EventBooking.fromJson(d.id, d.data())).toList();
-      events.sort((a, b) => a.date.compareTo(b.date));
-      return events;
-    });
+          final events = snap.docs
+              .map((d) => EventBooking.fromJson(d.id, d.data()))
+              .toList();
+          events.sort((a, b) => a.date.compareTo(b.date));
+          return events;
+        });
   }
 
   /// Events marked Done and awaiting payment, for the Pending Payments
@@ -248,10 +312,12 @@ class DataService {
         .where('status', isEqualTo: BookingStatus.pendingPayment.storageValue)
         .snapshots()
         .map((snap) {
-      final events = snap.docs.map((d) => EventBooking.fromJson(d.id, d.data())).toList();
-      events.sort((a, b) => a.date.compareTo(b.date));
-      return events;
-    });
+          final events = snap.docs
+              .map((d) => EventBooking.fromJson(d.id, d.data()))
+              .toList();
+          events.sort((a, b) => a.date.compareTo(b.date));
+          return events;
+        });
   }
 
   /// Events whose payment has been settled, for the History screen. Most
@@ -261,10 +327,12 @@ class DataService {
         .where('status', isEqualTo: BookingStatus.paid.storageValue)
         .snapshots()
         .map((snap) {
-      final events = snap.docs.map((d) => EventBooking.fromJson(d.id, d.data())).toList();
-      events.sort((a, b) => b.date.compareTo(a.date));
-      return events;
-    });
+          final events = snap.docs
+              .map((d) => EventBooking.fromJson(d.id, d.data()))
+              .toList();
+          events.sort((a, b) => b.date.compareTo(a.date));
+          return events;
+        });
   }
 
   /// Marks a booking as Done, moving it from Pending Events to Pending

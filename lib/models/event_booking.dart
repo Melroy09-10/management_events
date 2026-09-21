@@ -8,7 +8,10 @@ extension ShiftX on Shift {
   String get storageValue => name;
 
   static Shift fromStorage(String value) {
-    return Shift.values.firstWhere((s) => s.name == value, orElse: () => Shift.day);
+    return Shift.values.firstWhere(
+      (s) => s.name == value,
+      orElse: () => Shift.day,
+    );
   }
 }
 
@@ -21,7 +24,10 @@ extension BookingStatusX on BookingStatus {
   String get storageValue => name;
 
   static BookingStatus fromStorage(String? value) {
-    return BookingStatus.values.firstWhere((s) => s.name == value, orElse: () => BookingStatus.upcoming);
+    return BookingStatus.values.firstWhere(
+      (s) => s.name == value,
+      orElse: () => BookingStatus.upcoming,
+    );
   }
 }
 
@@ -42,6 +48,8 @@ class EventBooking {
   final double tips;
   final BookingStatus status;
   final bool copied;
+  final List<AssignedMember> assignedMembers;
+  final int requiredMembers;
 
   const EventBooking({
     required this.id,
@@ -57,24 +65,29 @@ class EventBooking {
     this.tips = 0,
     this.status = BookingStatus.upcoming,
     this.copied = false,
+    this.assignedMembers = const [],
+    this.requiredMembers = 0,
   });
 
   Map<String, dynamic> toJson() => {
-        'eventTypeId': eventTypeId,
-        'eventType': eventType,
-        'eventName': eventName,
-        'shift': shift.storageValue,
-        'date': Timestamp.fromDate(DateTime(date.year, date.month, date.day)),
-        'personId': personId,
-        'personName': personName,
-        'location': location,
-        'amount': amount,
-        'tips': tips,
-        'status': status.storageValue,
-        'copied': copied,
-      };
+    'eventTypeId': eventTypeId,
+    'eventType': eventType,
+    'eventName': eventName,
+    'shift': shift.storageValue,
+    'date': Timestamp.fromDate(DateTime(date.year, date.month, date.day)),
+    'personId': personId,
+    'personName': personName,
+    'location': location,
+    'amount': amount,
+    'tips': tips,
+    'status': status.storageValue,
+    'copied': copied,
+    'assignedMembers': [for (final m in assignedMembers) m.toJson()],
+    'requiredMembers': requiredMembers,
+  };
 
-  factory EventBooking.fromJson(String id, Map<String, dynamic> json) => EventBooking(
+  factory EventBooking.fromJson(String id, Map<String, dynamic> json) =>
+      EventBooking(
         id: id,
         eventTypeId: json['eventTypeId'] as String,
         eventType: json['eventType'] as String,
@@ -88,5 +101,24 @@ class EventBooking {
         tips: (json['tips'] as num?)?.toDouble() ?? 0,
         status: BookingStatusX.fromStorage(json['status'] as String?),
         copied: json['copied'] as bool? ?? false,
+        assignedMembers: [
+          for (final m in (json['assignedMembers'] as List? ?? const []))
+            AssignedMember.fromJson(Map<String, dynamic>.from(m as Map)),
+        ],
+        requiredMembers: (json['requiredMembers'] as num?)?.toInt() ?? 0,
       );
+}
+
+/// A Member account allocated to work an [EventBooking], recorded at the
+/// time they're added so the card can show who's assigned without an extra
+/// lookup.
+class AssignedMember {
+  final String id;
+  final String name;
+  const AssignedMember({required this.id, required this.name});
+
+  Map<String, dynamic> toJson() => {'id': id, 'name': name};
+
+  factory AssignedMember.fromJson(Map<String, dynamic> json) =>
+      AssignedMember(id: json['id'] as String, name: json['name'] as String);
 }

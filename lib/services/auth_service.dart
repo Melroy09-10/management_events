@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/admin_request.dart';
@@ -15,6 +16,19 @@ class AuthResult {
   final String? error;
   const AuthResult.ok() : success = true, error = null;
   const AuthResult.fail(String message) : success = false, error = message;
+}
+
+/// Result of [AuthService.addMember]: carries the new account's id on
+/// success so it can be linked to the event it was allocated to.
+class AddMemberResult {
+  final bool success;
+  final String? error;
+  final String? userId;
+  const AddMemberResult.ok(this.userId) : success = true, error = null;
+  const AddMemberResult.fail(String message)
+    : success = false,
+      error = message,
+      userId = null;
 }
 
 /// Backs the app with Firebase Authentication for credentials and
@@ -258,6 +272,96 @@ class AuthService extends ChangeNotifier {
               .map((d) => AdminRequest.fromJson(d.id, d.data()))
               .toList(),
         );
+  }
+
+  /// All Member and Admin accounts (Super Admin excluded), for picking who
+  /// to allocate to an event on the Add Members page. Sorted client-side to
+  /// avoid needing a composite index for a role filter + name ordering.
+  Stream<List<AppUser>> members() {
+    return _usersCollection.snapshots().map((snap) {
+      final users = snap.docs
+          .map((d) => AppUser.fromJson(d.id, d.data()))
+          .where((u) => u.role != UserRole.superAdmin)
+          .toList();
+      users.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+      return users;
+    });
+  }
+
+  /// Lets an Admin/Super Admin create a new Member account directly,
+  /// without going through self-signup. The account is created on a
+  /// throwaway secondary Firebase app instance so the admin performing this
+  /// stays signed in on the primary instance (creating a user normally
+  /// switches the primary instance's signed-in user to the new account).
+  Future<AddMemberResult> addMember({
+    required String name,
+    required String email,
+    required String password,
+    required String phone,
+    required String place,
+  }) async {
+    final requester = _currentUser;
+    if (requester == null ||
+        (requester.role != UserRole.admin &&
+            requester.role != UserRole.superAdmin)) {
+      return const AddMemberResult.fail(
+        'You do not have permission to add members.',
+      );
+    }
+
+    final normalizedEmail = email.trim().toLowerCase();
+    final trimmedName = name.trim();
+    final nameLower = trimmedName.toLowerCase();
+
+    final nameMatch = await _usersCollection
+        .where('nameLower', isEqualTo: nameLower)
+        .limit(1)
+        .get();
+    if (nameMatch.docs.isNotEmpty) {
+      return const AddMemberResult.fail(
+        'This username is already used. Enter a different full name.',
+      );
+    }
+
+    final secondaryApp = await Firebase.initializeApp(
+      name: 'addMember-${DateTime.now().microsecondsSinceEpoch}',
+      options: Firebase.app().options,
+    );
+    try {
+      final secondaryAuth = fb.FirebaseAuth.instanceFor(app: secondaryApp);
+      final credential = await secondaryAuth.createUserWithEmailAndPassword(
+        email: normalizedEmail,
+        password: password,
+      );
+      final newUser = credential.user!;
+      await newUser.updateDisplayName(trimmedName);
+      await secondaryAuth.signOut();
+
+      final user = AppUser(
+        id: newUser.uid,
+        name: trimmedName,
+        email: normalizedEmail,
+        phone: phone.trim(),
+        place: place.trim(),
+        role: UserRole.member,
+      );
+      await _usersCollection.doc(newUser.uid).set({
+        ...user.toJson(),
+        'nameLower': nameLower,
+      });
+
+      return AddMemberResult.ok(newUser.uid);
+    } on fb.FirebaseAuthException catch (e) {
+      return AddMemberResult.fail(_messageForAuthError(e));
+    } catch (e) {
+      return const AddMemberResult.fail(
+        'Could not add the member. Please try again.',
+      );
+    } finally {
+      await secondaryApp.delete();
+    }
   }
 
   Future<void> approveAdminRequest(AdminRequest request) async {

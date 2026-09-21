@@ -281,6 +281,8 @@ class _AddEventScreenState extends State<AddEventScreen> {
         tips: widget.existing?.tips ?? 0,
         status: widget.existing?.status ?? BookingStatus.upcoming,
         copied: widget.existing?.copied ?? false,
+        assignedMembers: widget.existing?.assignedMembers ?? const [],
+        requiredMembers: widget.existing?.requiredMembers ?? 0,
       );
 
       if (_isEditing) {

@@ -6,6 +6,7 @@ import '../models/event_type.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/currency.dart';
+import '../utils/text_formatters.dart';
 import '../widgets/app_text_field.dart';
 import '../widgets/confirm_delete_dialog.dart';
 import '../widgets/primary_button.dart';
@@ -301,6 +302,7 @@ class _EventFormSheetState extends State<_EventFormSheet> {
         content: TextField(
           controller: controller,
           autofocus: true,
+          inputFormatters: [FirstLetterCapitalizeFormatter()],
           decoration: InputDecoration(labelText: label),
         ),
         actions: [
@@ -572,6 +574,7 @@ class _EventFormSheetState extends State<_EventFormSheet> {
                   controller: _locationController,
                   label: 'Location *',
                   icon: Icons.location_on_outlined,
+                  inputFormatters: [FirstLetterCapitalizeFormatter()],
                   validator: (value) {
                     if (value == null || value.trim().isEmpty)
                       return 'Location is required';

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/person.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/text_formatters.dart';
 import '../widgets/app_text_field.dart';
 import '../widgets/confirm_delete_dialog.dart';
 import '../widgets/primary_button.dart';
@@ -251,6 +252,7 @@ class _PersonFormSheetState extends State<_PersonFormSheet> {
                 controller: _nameController,
                 label: 'Name *',
                 icon: Icons.person_outline_rounded,
+                inputFormatters: [FirstLetterCapitalizeFormatter()],
                 validator: (value) {
                   if (value == null || value.trim().isEmpty)
                     return 'Name is required';
