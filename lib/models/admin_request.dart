@@ -13,7 +13,7 @@ extension AdminRequestStatusX on AdminRequestStatus {
   }
 }
 
-/// A member's request to be promoted to Admin, reviewed by the Super Admin.
+/// A user's request to be promoted to Admin, reviewed by the Super Admin.
 class AdminRequest {
   final String id;
   final String userId;

@@ -7,10 +7,11 @@ import '../models/admin_request.dart';
 import '../models/user_role.dart';
 import '../screens/add_event_screen.dart';
 import '../screens/add_member_screen.dart';
+import '../screens/admin_pending_events_screen.dart';
 import '../screens/admin_requests_screen.dart';
-import '../screens/coming_soon_screen.dart';
 import '../screens/history_screen.dart';
 import '../screens/manage_data_screen.dart';
+import '../screens/members_screen.dart';
 import '../screens/pending_events_screen.dart';
 import '../screens/pending_payments_screen.dart';
 import '../screens/profile_screen.dart';
@@ -27,8 +28,24 @@ String _firstName(String fullName) {
   return first[0].toUpperCase() + first.substring(1);
 }
 
-class AppDrawer extends StatelessWidget {
+class AppDrawer extends StatefulWidget {
   const AppDrawer({super.key});
+
+  @override
+  State<AppDrawer> createState() => _AppDrawerState();
+}
+
+class _AppDrawerState extends State<AppDrawer> {
+  // Drives the Admin/User swipeable pages below, for an Admin/Super Admin
+  // only. Irrelevant for a plain User, who only ever sees their own menu.
+  final _pageController = PageController();
+  int _page = 0;
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +53,7 @@ class AppDrawer extends StatelessWidget {
     final user = auth.currentUser!;
     final isSuperAdmin = user.role == UserRole.superAdmin;
     final isAdmin = user.role == UserRole.admin;
+    final hasAdminAccess = isSuperAdmin || isAdmin;
 
     return Drawer(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -85,40 +103,10 @@ class AppDrawer extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                children: isSuperAdmin
-                    ? [
-                        const _SectionLabel('ADMIN'),
-                        _AddMembersDrawerItem(),
-                        _AdminRequestsDrawerItem(),
-                        const _SectionLabel('MENU'),
-                        _AddEventDrawerItem(),
-                        _PendingEventsDrawerItem(),
-                        _PendingPaymentsDrawerItem(),
-                        _HistoryDrawerItem(),
-                        const _SectionLabel('MANAGE'),
-                        _ManageEventDrawerItem(),
-                        _ManageDataDrawerItem(),
-                        const _SectionLabel('ACCOUNT'),
-                        _ProfileDrawerItem(),
-                      ]
-                    : isAdmin
-                    ? [
-                        const _SectionLabel('ADMIN'),
-                        _AddMembersDrawerItem(),
-                        const _SectionLabel('MENU'),
-                        _AddEventDrawerItem(),
-                        _PendingEventsDrawerItem(),
-                        _PendingPaymentsDrawerItem(),
-                        _HistoryDrawerItem(),
-                        const _SectionLabel('MANAGE'),
-                        _ManageEventDrawerItem(),
-                        _ManageDataDrawerItem(),
-                        const _SectionLabel('ACCOUNT'),
-                        _ProfileDrawerItem(),
-                      ]
-                    : [
+              child: !hasAdminAccess
+                  ? ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      children: [
                         const _SectionLabel('MENU'),
                         _PendingEventsDrawerItem(),
                         _PendingPaymentsDrawerItem(),
@@ -126,7 +114,91 @@ class AppDrawer extends StatelessWidget {
                         _ManageDataDrawerItem(),
                         _ProfileDrawerItem(),
                       ],
-              ),
+                    )
+                  : Column(
+                      children: [
+                        Expanded(
+                          child: PageView(
+                            controller: _pageController,
+                            onPageChanged: (index) =>
+                                setState(() => _page = index),
+                            children: [
+                              ListView(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                ),
+                                children: [
+                                  const _SectionLabel('ADMIN'),
+                                  _AddStaffingEventDrawerItem(),
+                                  _AddMembersDrawerItem(),
+                                  _AdminPendingEventsDrawerItem(),
+                                  _ContactDrawerItem(),
+                                  if (isSuperAdmin) _AdminRequestsDrawerItem(),
+                                ],
+                              ),
+                              ListView(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                ),
+                                children: [
+                                  const _SectionLabel('USER'),
+                                  _AddEventDrawerItem(),
+                                  _PendingEventsDrawerItem(),
+                                  _PendingPaymentsDrawerItem(),
+                                  _HistoryDrawerItem(),
+                                  _ManageDataDrawerItem(),
+                                  _ProfileDrawerItem(),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            for (var i = 0; i < 2; i++)
+                              GestureDetector(
+                                onTap: () => _pageController.animateToPage(
+                                  i,
+                                  duration: const Duration(milliseconds: 250),
+                                  curve: Curves.easeOut,
+                                ),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  margin: const EdgeInsets.symmetric(
+                                    horizontal: 3,
+                                  ),
+                                  width: _page == i ? 18 : 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: _page == i
+                                        ? AppColors.primary
+                                        : AppColors.primary.withValues(
+                                            alpha: 0.25,
+                                          ),
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, bottom: 4),
+                          child: Text(
+                            _page == 0
+                                ? 'Admin  ·  swipe for User →'
+                                : '← swipe for Admin  ·  User',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: AppColors.textSecondaryLight,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
@@ -167,7 +239,7 @@ class AppDrawer extends StatelessWidget {
   }
 }
 
-/// The circular role icon at the top of the drawer. For a Member, tapping it
+/// The circular role icon at the top of the drawer. For a User, tapping it
 /// 4 times in quick succession offers to send an admin-promotion request to
 /// the Super Admin.
 class _ProfileAvatar extends StatefulWidget {
@@ -193,7 +265,7 @@ class _ProfileAvatarState extends State<_ProfileAvatar> {
   }
 
   void _onTap() {
-    if (widget.role != UserRole.member) return;
+    if (widget.role != UserRole.user) return;
 
     _tapCount++;
     _resetTimer?.cancel();
@@ -347,6 +419,24 @@ class _PendingEventsDrawerItem extends StatelessWidget {
   }
 }
 
+/// Admin-only: pending staffing events (from the Admin "Add Event" sheet),
+/// separate from the USER section's own Pending Events.
+class _AdminPendingEventsDrawerItem extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return _DrawerItem(
+      icon: Icons.pending_actions_rounded,
+      label: 'Pending Events',
+      onTap: () {
+        Navigator.of(context).pop();
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const AdminPendingEventsScreen()),
+        );
+      },
+    );
+  }
+}
+
 class _PendingPaymentsDrawerItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -411,38 +501,41 @@ class _AddEventDrawerItem extends StatelessWidget {
   }
 }
 
-class _ManageEventDrawerItem extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return _DrawerItem(
-      icon: Icons.event_note_rounded,
-      label: 'Manage Event',
-      onTap: () {
-        Navigator.of(context).pop();
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => const ComingSoonScreen(
-              title: 'Manage Event',
-              icon: Icons.event_note_rounded,
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
 class _AddMembersDrawerItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _DrawerItem(
-      icon: Icons.person_add_alt_1_rounded,
-      label: 'Add Members',
+      icon: Icons.assignment_ind_rounded,
+      label: 'Assign Members',
       onTap: () {
         Navigator.of(context).pop();
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const AddMemberScreen()));
+      },
+    );
+  }
+}
+
+/// Admin-only: creates an event that needs staffing (person who called,
+/// event type, event name, date, shift, how many members required) — a
+/// different form from the personal "Add Event" in the USER section, which
+/// has no staffing concept. Assigning people to the event it creates
+/// happens separately, from "Assign Members".
+class _AddStaffingEventDrawerItem extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return _DrawerItem(
+      icon: Icons.add_circle_outline_rounded,
+      label: 'Add Event',
+      onTap: () {
+        Navigator.of(context).pop();
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => const AddEventSheet(),
+        );
       },
     );
   }
@@ -459,6 +552,22 @@ class _ProfileDrawerItem extends StatelessWidget {
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const ProfileScreen()));
+      },
+    );
+  }
+}
+
+class _ContactDrawerItem extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return _DrawerItem(
+      icon: Icons.contacts_rounded,
+      label: 'Contact',
+      onTap: () {
+        Navigator.of(context).pop();
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const MembersScreen()));
       },
     );
   }

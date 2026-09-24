@@ -44,7 +44,7 @@ class AppColors {
   // Role colors — kept in the same navy/gold/wine family as the rest of the UI.
   static const Color superAdmin = Color(0xFF7A2048); // Deep wine
   static const Color admin = Color(0xFF2C4870); // Sapphire navy
-  static const Color member = Color(0xFF16805C); // Success green
+  static const Color user = Color(0xFF16805C); // Success green
 }
 
 /// The app's 8px base spacing scale. Use these instead of ad-hoc numbers so

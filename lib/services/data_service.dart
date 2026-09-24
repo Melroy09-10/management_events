@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb;
 import '../models/event_booking.dart';
 import '../models/event_record.dart';
 import '../models/event_type.dart';
+import '../models/member.dart';
 import '../models/person.dart';
 
 /// Result of [DataService.checkBookingSlot].
@@ -26,6 +27,8 @@ class DataService {
 
   CollectionReference<Map<String, dynamic>> get _peopleCollection =>
       _ownerDoc.collection('people');
+  CollectionReference<Map<String, dynamic>> get _membersCollection =>
+      _ownerDoc.collection('members');
   CollectionReference<Map<String, dynamic>> get _eventTypesCollection =>
       _ownerDoc.collection('event_types');
   CollectionReference<Map<String, dynamic>> get _eventsCollection =>
@@ -59,6 +62,61 @@ class DataService {
 
   Future<void> deletePerson(String id) {
     return _peopleCollection.doc(id).delete();
+  }
+
+  // --- Members (the Admin's own roster, used for event allocation) ---
+
+  Stream<List<Member>> members() {
+    return _membersCollection
+        .orderBy('name')
+        .snapshots()
+        .map(
+          (snap) =>
+              snap.docs.map((d) => Member.fromJson(d.id, d.data())).toList(),
+        );
+  }
+
+  Future<void> addMemberEntry({required String name, required String phone}) {
+    return _membersCollection.add({'name': name, 'phone': phone});
+  }
+
+  Future<void> updateMemberEntry(
+    String id, {
+    required String name,
+    required String phone,
+  }) {
+    return _membersCollection.doc(id).update({'name': name, 'phone': phone});
+  }
+
+  Future<void> deleteMemberEntry(String id) {
+    return _membersCollection.doc(id).delete();
+  }
+
+  /// One-time snapshot of this Admin's current roster, for the duplicate
+  /// phone-number check during a contacts import.
+  Future<List<Member>> membersOnce() async {
+    final snap = await _membersCollection.get();
+    return snap.docs.map((d) => Member.fromJson(d.id, d.data())).toList();
+  }
+
+  /// Imports a batch of Members in a single write: adds brand-new entries
+  /// and updates the name/phone of existing ones the Admin chose to
+  /// overwrite, leaving anything marked "keep existing" untouched.
+  Future<void> importMembers({
+    required List<({String name, String phone})> newMembers,
+    required List<({String id, String name, String phone})> updatedMembers,
+  }) {
+    final batch = _firestore.batch();
+    for (final m in newMembers) {
+      batch.set(_membersCollection.doc(), {'name': m.name, 'phone': m.phone});
+    }
+    for (final m in updatedMembers) {
+      batch.update(_membersCollection.doc(m.id), {
+        'name': m.name,
+        'phone': m.phone,
+      });
+    }
+    return batch.commit();
   }
 
   // --- Event types (the Event Type -> Event Name taxonomy) ---
@@ -199,13 +257,15 @@ class DataService {
   /// Date + Shift is already booked, and whether any event at all already
   /// occupies that date & shift (a user may have at most one Day and one
   /// Night event per date). [excludingId] lets an edit check without
-  /// flagging itself.
+  /// flagging itself. Admin staffing events ([staffing] true) and the user's
+  /// own events are checked separately, so one never blocks the other.
   Future<BookingSlotCheck> checkBookingSlot({
     required String eventType,
     required String eventName,
     required DateTime date,
     required Shift shift,
     String? excludingId,
+    bool staffing = false,
   }) async {
     final normalizedType = eventType.trim().toLowerCase();
     final normalizedName = eventName.trim().toLowerCase();
@@ -219,6 +279,8 @@ class DataService {
       if (doc.id == excludingId) continue;
       final data = doc.data();
       if (!_isSameDate((data['date'] as Timestamp).toDate(), date)) continue;
+      final isStaffing = ((data['requiredMembers'] as num?)?.toInt() ?? 0) > 0;
+      if (isStaffing != staffing) continue;
       slotTaken = true;
       final existingType = (data['eventType'] as String).trim().toLowerCase();
       final existingName = (data['eventName'] as String).trim().toLowerCase();
@@ -271,10 +333,45 @@ class DataService {
     });
   }
 
-  /// Still-upcoming events booked on [date], for the Today's Events
-  /// dashboard section. Status is filtered client-side to avoid needing a
-  /// composite index for a range (date) + equality (status) query.
-  Stream<List<EventBooking>> eventBookingsForDate(DateTime date) {
+  /// Unassigns a single member from [eventId], the inverse of
+  /// [assignMemberToEvent]/[assignMembersToEvent].
+  Future<void> removeMemberFromEvent(String eventId, AssignedMember member) {
+    return _eventBookingsCollection.doc(eventId).update({
+      'assignedMembers': FieldValue.arrayRemove([member.toJson()]),
+      'presentMemberIds': FieldValue.arrayRemove([member.id]),
+    });
+  }
+
+  /// Ticks or unticks [memberId] as present at [eventId].
+  Future<void> setMemberPresent(
+    String eventId,
+    String memberId, {
+    required bool present,
+  }) {
+    return _eventBookingsCollection.doc(eventId).update({
+      'presentMemberIds': present
+          ? FieldValue.arrayUnion([memberId])
+          : FieldValue.arrayRemove([memberId]),
+    });
+  }
+
+  /// Still-upcoming events the user booked themselves on [date], for the
+  /// Today's Events dashboard section. Admin staffing events (those with a
+  /// required-members target) are left out — see [staffingEventsForDate].
+  Stream<List<EventBooking>> eventBookingsForDate(DateTime date) =>
+      _upcomingBookingsForDate(date, staffing: false);
+
+  /// Still-upcoming Admin staffing events on [date], for the dashboard's
+  /// "Assigned Members" page (Admin only).
+  Stream<List<EventBooking>> staffingEventsForDate(DateTime date) =>
+      _upcomingBookingsForDate(date, staffing: true);
+
+  /// Status and kind are filtered client-side to avoid needing a composite
+  /// index for a range (date) + equality (status) query.
+  Stream<List<EventBooking>> _upcomingBookingsForDate(
+    DateTime date, {
+    required bool staffing,
+  }) {
     final start = DateTime(date.year, date.month, date.day);
     final end = start.add(const Duration(days: 1));
     return _eventBookingsCollection
@@ -284,7 +381,11 @@ class DataService {
         .map(
           (snap) => snap.docs
               .map((d) => EventBooking.fromJson(d.id, d.data()))
-              .where((b) => b.status == BookingStatus.upcoming)
+              .where(
+                (b) =>
+                    b.status == BookingStatus.upcoming &&
+                    (b.requiredMembers > 0) == staffing,
+              )
               .toList(),
         );
   }
@@ -303,6 +404,22 @@ class DataService {
           events.sort((a, b) => a.date.compareTo(b.date));
           return events;
         });
+  }
+
+  /// The user's own pending bookings (no staffing target), for the USER
+  /// section's Pending Events screen.
+  Stream<List<EventBooking>> pendingPersonalEvents() {
+    return pendingEvents().map(
+      (events) => events.where((e) => e.requiredMembers == 0).toList(),
+    );
+  }
+
+  /// Pending events created from the Admin "Add Event" sheet (they carry a
+  /// required-members target), for the ADMIN section's Pending Events screen.
+  Stream<List<EventBooking>> pendingStaffingEvents() {
+    return pendingEvents().map(
+      (events) => events.where((e) => e.requiredMembers > 0).toList(),
+    );
   }
 
   /// Events marked Done and awaiting payment, for the Pending Payments
@@ -341,6 +458,31 @@ class DataService {
     return _eventBookingsCollection.doc(bookingId).update({
       'status': BookingStatus.pendingPayment.storageValue,
     });
+  }
+
+  /// Moves the user's own events whose date has passed (before today) and
+  /// that were never marked Done into Pending Payments automatically, as if
+  /// Done had been tapped. Admin staffing events are left untouched.
+  Future<void> moveOverdueEventsToPendingPayments() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final snapshot = await _eventBookingsCollection
+        .where('status', isEqualTo: BookingStatus.upcoming.storageValue)
+        .get();
+
+    final batch = _firestore.batch();
+    var count = 0;
+    for (final doc in snapshot.docs) {
+      final booking = EventBooking.fromJson(doc.id, doc.data());
+      if (booking.requiredMembers > 0 || !booking.date.isBefore(today)) {
+        continue;
+      }
+      batch.update(doc.reference, {
+        'status': BookingStatus.pendingPayment.storageValue,
+      });
+      count++;
+    }
+    if (count > 0) await batch.commit();
   }
 
   /// Marks a booking as paid, moving it from Pending Payments to History.

@@ -267,6 +267,19 @@ class _AddEventScreenState extends State<AddEventScreen> {
         return;
       }
 
+      // An event dated before today is already over, so it goes straight to
+      // Pending Payments instead of waiting for Event Done.
+      final now = DateTime.now();
+      final isPastDate = _date!.isBefore(
+        DateTime(now.year, now.month, now.day),
+      );
+      final currentStatus = widget.existing?.status ?? BookingStatus.upcoming;
+      final movedToPayments =
+          isPastDate && currentStatus == BookingStatus.upcoming;
+      final status = movedToPayments
+          ? BookingStatus.pendingPayment
+          : currentStatus;
+
       final booking = EventBooking(
         id: widget.existing?.id ?? '',
         eventTypeId: _selectedTypeId!,
@@ -279,10 +292,11 @@ class _AddEventScreenState extends State<AddEventScreen> {
         location: _matchedRecord!.location,
         amount: amount,
         tips: widget.existing?.tips ?? 0,
-        status: widget.existing?.status ?? BookingStatus.upcoming,
+        status: status,
         copied: widget.existing?.copied ?? false,
         assignedMembers: widget.existing?.assignedMembers ?? const [],
         requiredMembers: widget.existing?.requiredMembers ?? 0,
+        presentMemberIds: widget.existing?.presentMemberIds ?? const [],
       );
 
       if (_isEditing) {
@@ -295,7 +309,9 @@ class _AddEventScreenState extends State<AddEventScreen> {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            _isEditing
+            movedToPayments
+                ? 'Past event saved to Pending Payments'
+                : _isEditing
                 ? 'Event updated successfully'
                 : 'Event added successfully',
           ),

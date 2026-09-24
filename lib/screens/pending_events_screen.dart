@@ -8,8 +8,8 @@ import '../widgets/confirm_delete_dialog.dart';
 import '../widgets/event_booking_card.dart';
 import 'add_event_screen.dart';
 
-/// All of the current user's events that haven't been marked Done yet
-/// (any date). Tapping Done here moves an event to Pending Payments — same
+/// All of the current user's own events (not Admin staffing events) that
+/// haven't been marked Done yet (any date). Tapping Done here moves an event to Pending Payments — same
 /// card look and action as the Today's Events dashboard section.
 class PendingEventsScreen extends StatelessWidget {
   const PendingEventsScreen({super.key});
@@ -22,7 +22,7 @@ class PendingEventsScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Pending Events')),
       body: SafeArea(
         child: StreamBuilder<List<EventBooking>>(
-          stream: dataService.pendingEvents(),
+          stream: dataService.pendingPersonalEvents(),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());

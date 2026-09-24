@@ -126,7 +126,7 @@ class AuthService extends ChangeNotifier {
       final existingUsers = await _usersCollection.count().get();
       final role = (existingUsers.count ?? 0) == 0
           ? UserRole.superAdmin
-          : UserRole.member;
+          : UserRole.user;
 
       final user = AppUser(
         id: firebaseUser.uid,
@@ -345,7 +345,7 @@ class AuthService extends ChangeNotifier {
         email: normalizedEmail,
         phone: phone.trim(),
         place: place.trim(),
-        role: UserRole.member,
+        role: UserRole.user,
       );
       await _usersCollection.doc(newUser.uid).set({
         ...user.toJson(),

@@ -51,6 +51,10 @@ class EventBooking {
   final List<AssignedMember> assignedMembers;
   final int requiredMembers;
 
+  /// Ids of [assignedMembers] ticked as present on the dashboard's
+  /// Assigned Members page — attendance only, nothing else depends on it.
+  final List<String> presentMemberIds;
+
   const EventBooking({
     required this.id,
     required this.eventTypeId,
@@ -67,6 +71,7 @@ class EventBooking {
     this.copied = false,
     this.assignedMembers = const [],
     this.requiredMembers = 0,
+    this.presentMemberIds = const [],
   });
 
   Map<String, dynamic> toJson() => {
@@ -84,20 +89,21 @@ class EventBooking {
     'copied': copied,
     'assignedMembers': [for (final m in assignedMembers) m.toJson()],
     'requiredMembers': requiredMembers,
+    'presentMemberIds': presentMemberIds,
   };
 
   factory EventBooking.fromJson(String id, Map<String, dynamic> json) =>
       EventBooking(
         id: id,
-        eventTypeId: json['eventTypeId'] as String,
-        eventType: json['eventType'] as String,
-        eventName: json['eventName'] as String,
-        shift: ShiftX.fromStorage(json['shift'] as String),
+        eventTypeId: json['eventTypeId'] as String? ?? '',
+        eventType: json['eventType'] as String? ?? '',
+        eventName: json['eventName'] as String? ?? '',
+        shift: ShiftX.fromStorage(json['shift'] as String? ?? ''),
         date: (json['date'] as Timestamp).toDate(),
         personId: json['personId'] as String? ?? '',
         personName: json['personName'] as String? ?? '',
-        location: json['location'] as String,
-        amount: (json['amount'] as num).toDouble(),
+        location: json['location'] as String? ?? '',
+        amount: (json['amount'] as num?)?.toDouble() ?? 0,
         tips: (json['tips'] as num?)?.toDouble() ?? 0,
         status: BookingStatusX.fromStorage(json['status'] as String?),
         copied: json['copied'] as bool? ?? false,
@@ -106,6 +112,10 @@ class EventBooking {
             AssignedMember.fromJson(Map<String, dynamic>.from(m as Map)),
         ],
         requiredMembers: (json['requiredMembers'] as num?)?.toInt() ?? 0,
+        presentMemberIds: [
+          ...(json['presentMemberIds'] as List? ?? const [])
+              .whereType<String>(),
+        ],
       );
 }
 
@@ -119,6 +129,8 @@ class AssignedMember {
 
   Map<String, dynamic> toJson() => {'id': id, 'name': name};
 
-  factory AssignedMember.fromJson(Map<String, dynamic> json) =>
-      AssignedMember(id: json['id'] as String, name: json['name'] as String);
+  factory AssignedMember.fromJson(Map<String, dynamic> json) => AssignedMember(
+    id: json['id'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+  );
 }

@@ -6,7 +6,7 @@ import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 
 /// Lets the Super Admin review pending "make me an Admin" requests from
-/// members and approve or reject each one.
+/// users and approve or reject each one.
 class AdminRequestsScreen extends StatelessWidget {
   const AdminRequestsScreen({super.key});
 
