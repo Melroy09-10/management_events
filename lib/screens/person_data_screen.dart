@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../utils/text_formatters.dart';
 import '../widgets/app_text_field.dart';
 import '../widgets/confirm_delete_dialog.dart';
+import '../widgets/contact_import.dart';
 import '../widgets/primary_button.dart';
 
 class PersonDataScreen extends StatelessWidget {
@@ -20,7 +21,7 @@ class PersonDataScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Person Data')),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showPersonForm(context),
+        onPressed: () => _showAddPersonSheet(context),
         icon: const Icon(Icons.person_add_rounded),
         label: const Text('Add Person'),
       ),
@@ -62,6 +63,12 @@ class PersonDataScreen extends StatelessWidget {
                         'No people added yet',
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Add one manually or import several from your contacts.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.textSecondaryLight),
                       ),
                     ],
                   ),
@@ -142,6 +149,33 @@ class _PersonTile extends StatelessWidget {
     }
   }
 }
+
+// --- Add Person: manual entry vs. import from contacts ---
+
+void _showAddPersonSheet(BuildContext context) {
+  showAddChoiceSheet(
+    context,
+    title: 'Add Person',
+    onManual: () => _showPersonForm(context),
+    onImport: () => _startContactImport(context),
+  );
+}
+
+Future<void> _startContactImport(BuildContext context) {
+  final dataService = context.read<DataService>();
+  return startContactImport(
+    context,
+    labels: const ContactImportLabels('Person', 'People'),
+    loadExisting: () async => [
+      for (final p in await dataService.peopleOnce())
+        (id: p.id, name: p.name, phone: p.phone),
+    ],
+    save: ({required added, required updated}) =>
+        dataService.importPeople(newPeople: added, updatedPeople: updated),
+  );
+}
+
+// --- Add Manually ---
 
 Future<void> _showPersonForm(BuildContext context, {Person? existing}) {
   return showModalBottomSheet(

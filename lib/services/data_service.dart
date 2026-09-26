@@ -64,6 +64,33 @@ class DataService {
     return _peopleCollection.doc(id).delete();
   }
 
+  /// One-time snapshot of Person Data, for the duplicate phone-number check
+  /// during a contacts import.
+  Future<List<Person>> peopleOnce() async {
+    final snap = await _peopleCollection.get();
+    return snap.docs.map((d) => Person.fromJson(d.id, d.data())).toList();
+  }
+
+  /// Imports a batch of people in a single write: adds brand-new entries
+  /// and updates the name/phone of existing ones the user chose to
+  /// overwrite, leaving anything marked "keep existing" untouched.
+  Future<void> importPeople({
+    required List<({String name, String phone})> newPeople,
+    required List<({String id, String name, String phone})> updatedPeople,
+  }) {
+    final batch = _firestore.batch();
+    for (final p in newPeople) {
+      batch.set(_peopleCollection.doc(), {'name': p.name, 'phone': p.phone});
+    }
+    for (final p in updatedPeople) {
+      batch.update(_peopleCollection.doc(p.id), {
+        'name': p.name,
+        'phone': p.phone,
+      });
+    }
+    return batch.commit();
+  }
+
   // --- Members (the Admin's own roster, used for event allocation) ---
 
   Stream<List<Member>> members() {
