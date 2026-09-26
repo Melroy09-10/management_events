@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../utils/currency.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/confirm_delete_dialog.dart';
+import '../widgets/dashboard_widgets.dart';
 import '../widgets/payment_chips.dart';
 import '../widgets/responsive_center.dart';
 import 'add_event_screen.dart';
@@ -88,21 +89,33 @@ class _DashboardScreenState extends State<DashboardScreen>
     final role = user.role;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Dashboard')),
       drawer: const AppDrawer(),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: paymentOrange,
-        foregroundColor: Colors.white,
+      floatingActionButton: DashAddEventButton(
         onPressed: () => Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const AddEventScreen())),
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Add Event'),
       ),
-      body: SafeArea(
-        child: role == UserRole.superAdmin
-            ? _SuperAdminDashboardBody(user: user, quickActions: _quickActions)
-            : _TodaysEventsBody(isAdmin: role == UserRole.admin),
+      body: Column(
+        children: [
+          Builder(
+            builder: (context) => DashboardHeader(
+              title: 'Dashboard',
+              subtitle: 'Welcome back!',
+              onMenu: () => Scaffold.of(context).openDrawer(),
+            ),
+          ),
+          Expanded(
+            child: SafeArea(
+              top: false,
+              child: role == UserRole.superAdmin
+                  ? _SuperAdminDashboardBody(
+                      user: user,
+                      quickActions: _quickActions,
+                    )
+                  : _TodaysEventsBody(isAdmin: role == UserRole.admin),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -212,11 +225,12 @@ class _SuperAdminDashboardBody extends StatelessWidget {
   }
 }
 
-/// Shown only to Admin & User: today's events booked on the current
-/// user's own account (Add Event → event_bookings).
+/// Shown only to Admin & User: the summary cards and the day's events
+/// booked on the current user's own account (Add Event → event_bookings),
+/// for today by default or any date picked from the date selector.
 ///
-/// For an Admin, the list below the header swipes between two pages: their
-/// own events for today, and everyone assigned to today's staffing events.
+/// For an Admin, the list swipes (or taps) between two tabs: their own
+/// events, and the members assigned to that day's staffing events.
 class _TodaysEventsBody extends StatefulWidget {
   final bool isAdmin;
   const _TodaysEventsBody({required this.isAdmin});
@@ -226,20 +240,43 @@ class _TodaysEventsBody extends StatefulWidget {
 }
 
 class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
-  // Created once so switching pages doesn't resubscribe and flash loading.
-  late final Stream<List<EventBooking>> _myEvents;
-  late final Stream<List<EventBooking>> _staffingEvents;
+  DateTime _date = DateUtils.dateOnly(DateTime.now());
+
+  // Held in state so switching tabs doesn't resubscribe and flash loading;
+  // only replaced when the date changes.
+  late Stream<List<EventBooking>> _myEvents;
+  late Stream<List<EventBooking>> _staffingEvents;
 
   /// 0 = My Events, 1 = Assigned Members (Admin only).
   int _page = 0;
 
+  bool get _isToday => DateUtils.isSameDay(_date, DateTime.now());
+
   @override
   void initState() {
     super.initState();
+    _listen();
+  }
+
+  void _listen() {
     final dataService = context.read<DataService>();
-    final today = DateTime.now();
-    _myEvents = dataService.eventBookingsForDate(today);
-    _staffingEvents = dataService.staffingEventsForDate(today);
+    _myEvents = dataService.eventBookingsForDate(_date);
+    _staffingEvents = dataService.staffingEventsForDate(_date);
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _date = DateUtils.dateOnly(picked);
+      _listen();
+    });
   }
 
   void _goTo(int page) {
@@ -252,793 +289,245 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
     if (velocity > 250) _goTo(0);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final dataService = context.read<DataService>();
-
-    return StreamBuilder<List<EventBooking>>(
-      stream: _myEvents,
-      builder: (context, snapshot) {
-        final loading = snapshot.connectionState == ConnectionState.waiting;
-        final events = snapshot.data ?? const <EventBooking>[];
-
-        return ResponsiveCenter(
-          maxWidth: 760,
-          child: GestureDetector(
-            onHorizontalDragEnd: widget.isAdmin ? _onSwipe : null,
-            child: CustomScrollView(
-              slivers: [
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                    child: _PendingAmountCard(dataService: dataService),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-                    child: _TodayStatsRow(events: events),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-                    child: Row(
-                      children: [
-                        Text(
-                          "Today's Events",
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(width: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: paymentOrange.withValues(alpha: 0.16),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            '${events.length}',
-                            style: const TextStyle(
-                              color: paymentOrangeDark,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 12.5,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (widget.isAdmin)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-                      child: _TodayPageSwitcher(page: _page, onChanged: _goTo),
-                    ),
-                  ),
-                if (widget.isAdmin && _page == 1)
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
-                    sliver: SliverToBoxAdapter(
-                      child: _TodaysAssignedMembers(stream: _staffingEvents),
-                    ),
-                  )
-                else if (loading)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.only(top: 40),
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                  )
-                else if (events.isEmpty)
-                  const SliverPadding(
-                    padding: EdgeInsets.fromLTRB(20, 0, 20, 100),
-                    sliver: SliverToBoxAdapter(child: _NoTodaysEventsCard()),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
-                    sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate((context, index) {
-                        final event = events[index];
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: _TodaysEventCard(
-                            event: event,
-                            onEditTips: (tips) =>
-                                dataService.updateEventTips(event.id, tips),
-                            onEditAmount: (amount) =>
-                                dataService.updateEventAmount(event.id, amount),
-                            onPaymentDone: () async {
-                              await dataService.markBookingDone(event.id);
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Moved to Pending Payments'),
-                                  ),
-                                );
-                              }
-                            },
-                            onCancel: () async {
-                              final confirmed = await confirmDelete(context);
-                              if (!confirmed || !context.mounted) return;
-                              await dataService.deleteEventBooking(event.id);
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Event cancelled'),
-                                  ),
-                                );
-                              }
-                            },
-                          ),
-                        );
-                      }, childCount: events.length),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// Two-option pill ("My Events" / "Assigned Members") above the Admin's
-/// Today's Events list. Swiping the list sideways switches it too.
-class _TodayPageSwitcher extends StatelessWidget {
-  final int page;
-  final ValueChanged<int> onChanged;
-  const _TodayPageSwitcher({required this.page, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: paymentOrange.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Row(
-            children: [
-              _option(0, Icons.event_rounded, 'My Events'),
-              _option(1, Icons.groups_rounded, 'Assigned Members'),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            for (var i = 0; i < 2; i++)
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                margin: const EdgeInsets.symmetric(horizontal: 3),
-                width: page == i ? 18 : 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: page == i
-                      ? paymentOrange
-                      : paymentOrange.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-          ],
-        ),
-      ],
-    );
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Widget _option(int index, IconData icon, String label) {
-    final selected = page == index;
-    final color = selected ? Colors.white : paymentOrangeDark;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => onChanged(index),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: selected ? paymentOrange : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 17, color: color),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Admin's second Today's Events page: each of today's staffing events with
-/// the members assigned to it.
-class _TodaysAssignedMembers extends StatelessWidget {
-  final Stream<List<EventBooking>> stream;
-  const _TodaysAssignedMembers({required this.stream});
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<EventBooking>>(
-      stream: stream,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Padding(
-            padding: EdgeInsets.only(top: 40),
-            child: Center(child: CircularProgressIndicator()),
-          );
-        }
-        final events = snapshot.data ?? const <EventBooking>[];
-        if (events.isEmpty) return const _EmptyAssignedCard();
-
-        final total = events.fold<int>(
-          0,
-          (sum, e) => sum + e.assignedMembers.length,
-        );
-        final noun = total == 1 ? 'member' : 'members';
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(left: 4, bottom: 10),
-              child: Text(
-                '$total $noun working today',
-                style: TextStyle(
-                  color: AppColors.textSecondaryLight,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12.5,
-                ),
-              ),
-            ),
-            for (final event in events) ...[
-              _AssignedEventCard(event: event),
-              const SizedBox(height: 12),
-            ],
-          ],
-        );
-      },
-    );
-  }
-}
-
-/// One of today's staffing events: name, date, shift, how many are assigned
-/// out of how many are needed, and the assigned members A–Z — each with a
-/// "present" tick (attendance only) and a remove button.
-class _AssignedEventCard extends StatelessWidget {
-  final EventBooking event;
-  const _AssignedEventCard({required this.event});
-
-  @override
-  Widget build(BuildContext context) {
-    final assigned = event.assignedMembers.length;
-    final present = event.assignedMembers
-        .where((m) => event.presentMemberIds.contains(m.id))
-        .length;
-    final isFull = assigned >= event.requiredMembers;
-    final countColor = isFull ? AppColors.success : AppColors.goldDark;
-    final members = [...event.assignedMembers]
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.gold.withValues(alpha: 0.3)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      event.eventName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15.5,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        ShiftBadge(shift: event.shift),
-                        const SizedBox(width: 10),
-                        const Icon(
-                          Icons.calendar_today_outlined,
-                          size: 14,
-                          color: AppColors.textSecondaryLight,
-                        ),
-                        const SizedBox(width: 5),
-                        Flexible(
-                          child: Text(
-                            formatEventDate(event.date),
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppColors.textSecondaryLight,
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              _CardIconButton(
-                icon: Icons.edit_outlined,
-                tooltip: 'Edit event',
-                background: paymentOrange.withValues(alpha: 0.1),
-                color: onSurfaceAccent(context, paymentOrange),
-                onPressed: () => showEditStaffingEventSheet(context, event),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Icon(Icons.groups_rounded, size: 16, color: countColor),
-              const SizedBox(width: 6),
-              Text(
-                '$assigned of ${event.requiredMembers} assigned',
-                style: TextStyle(
-                  color: countColor,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12.5,
-                ),
-              ),
-              const Spacer(),
-              if (assigned > 0)
-                Text(
-                  '$present present',
-                  style: const TextStyle(
-                    color: AppColors.success,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12.5,
-                  ),
-                ),
-            ],
-          ),
-          const Divider(height: 22),
-          if (members.isEmpty)
-            Text(
-              'No members assigned yet',
-              style: TextStyle(
-                color: AppColors.textSecondaryLight,
-                fontSize: 13,
-                fontStyle: FontStyle.italic,
-              ),
-            )
-          else
-            for (final member in members)
-              _AssignedMemberRow(
-                event: event,
-                member: member,
-                present: event.presentMemberIds.contains(member.id),
-              ),
-        ],
-      ),
-    );
-  }
-}
-
-/// A member on an [_AssignedEventCard]: present tick, name, remove button.
-class _AssignedMemberRow extends StatelessWidget {
-  final EventBooking event;
-  final AssignedMember member;
-  final bool present;
-  const _AssignedMemberRow({
-    required this.event,
-    required this.member,
-    required this.present,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        children: [
-          Checkbox(
-            value: present,
-            activeColor: AppColors.success,
-            visualDensity: VisualDensity.compact,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(5),
-            ),
-            onChanged: (value) => _setPresent(context, value ?? false),
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: GestureDetector(
-              onTap: () => _setPresent(context, !present),
-              child: Text(
-                member.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                  color: present ? AppColors.success : null,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          _CardIconButton(
-            icon: Icons.delete_outline_rounded,
-            tooltip: 'Remove from event',
-            size: 30,
-            iconSize: 16,
-            background: deleteChipBg,
-            color: deleteChipIcon,
-            onPressed: () => _remove(context),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _setPresent(BuildContext context, bool value) async {
+  Future<void> _setPresent(
+    EventBooking event,
+    AssignedMember member,
+    bool present,
+  ) async {
     try {
       await context.read<DataService>().setMemberPresent(
         event.id,
         member.id,
-        present: value,
+        present: present,
       );
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not update: $e')));
-      }
+      _showMessage('Could not update: $e');
     }
   }
 
-  Future<void> _remove(BuildContext context) async {
+  Future<void> _removeMember(EventBooking event, AssignedMember member) async {
     final confirmed = await confirmDelete(context);
-    if (!confirmed || !context.mounted) return;
+    if (!confirmed || !mounted) return;
     try {
       await context.read<DataService>().removeMemberFromEvent(event.id, member);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${member.name} removed from the event')),
-        );
-      }
+      _showMessage('${member.name} removed from the event');
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not remove: $e')));
-      }
+      _showMessage('Could not remove: $e');
     }
   }
-}
-
-/// Small round icon button used on the Assigned Members cards.
-class _CardIconButton extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final Color background;
-  final Color color;
-  final VoidCallback onPressed;
-  final double size;
-  final double iconSize;
-  const _CardIconButton({
-    required this.icon,
-    required this.tooltip,
-    required this.background,
-    required this.color,
-    required this.onPressed,
-    this.size = 36,
-    this.iconSize = 18,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: Material(
-          color: background,
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onPressed,
-            child: Icon(icon, size: iconSize, color: color),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _EmptyAssignedCard extends StatelessWidget {
-  const _EmptyAssignedCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.black12.withValues(alpha: 0.06)),
-      ),
-      child: Column(
-        children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: AppColors.secondary.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.groups_rounded,
-              color: AppColors.secondary,
-              size: 32,
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'No members assigned for today.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Orange hero card showing the signed-in user's total pending payment
-/// amount across all their pendingPayment-status bookings. Tapping it opens
-/// the Pending Payments screen.
-class _PendingAmountCard extends StatelessWidget {
-  final DataService dataService;
-  const _PendingAmountCard({required this.dataService});
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<EventBooking>>(
-      stream: dataService.pendingPayments(),
-      builder: (context, snapshot) {
-        final events = snapshot.data ?? const <EventBooking>[];
-        final total = events.fold<double>(
-          0,
-          (sum, e) => sum + e.amount + e.tips,
-        );
-
-        return GestureDetector(
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const PendingPaymentsScreen()),
-          ),
-          child: Container(
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [paymentOrange, paymentOrangeDark],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: paymentOrangeDark.withValues(alpha: 0.35),
-                  blurRadius: 22,
-                  offset: const Offset(0, 12),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.22),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: const Icon(
-                        Icons.account_balance_wallet_rounded,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(
-                        'Pending Amount',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.9),
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        '${events.length} event${events.length == 1 ? '' : 's'}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12.5,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 22),
-                Text(
-                  formatCurrency(total),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 30,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Tap to view all pending payments',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.85),
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
-          ),
+      stream: _myEvents,
+      builder: (context, mine) {
+        if (!widget.isAdmin) return _content(context, mine, null);
+        return StreamBuilder<List<EventBooking>>(
+          stream: _staffingEvents,
+          builder: (context, staffing) => _content(context, mine, staffing),
         );
       },
     );
   }
-}
 
-/// Two compact stat tiles for today only: how many events are booked today,
-/// and the total payment (amount + tips) across just those today's events —
-/// distinct from the Pending Amount card above, which covers every pending
-/// payment regardless of date.
-class _TodayStatsRow extends StatelessWidget {
-  final List<EventBooking> events;
-  const _TodayStatsRow({required this.events});
-
-  @override
-  Widget build(BuildContext context) {
-    final todayTotal = events.fold<double>(
+  Widget _content(
+    BuildContext context,
+    AsyncSnapshot<List<EventBooking>> mine,
+    AsyncSnapshot<List<EventBooking>>? staffing,
+  ) {
+    final dataService = context.read<DataService>();
+    final events = mine.data ?? const <EventBooking>[];
+    final staffingEvents = staffing?.data ?? const <EventBooking>[];
+    final showingAssigned = widget.isAdmin && _page == 1;
+    final loading = showingAssigned
+        ? staffing?.connectionState == ConnectionState.waiting
+        : mine.connectionState == ConnectionState.waiting;
+    final dayTotal = events.fold<double>(
       0,
       (sum, e) => sum + e.amount + e.tips,
     );
-    return Row(
-      children: [
-        Expanded(
-          child: _StatTile(
-            icon: Icons.event_note_rounded,
-            label: "Today's Events",
-            value: '${events.length}',
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _StatTile(
-            icon: Icons.currency_rupee_rounded,
-            label: "Today's Payment",
-            value: formatCurrency(todayTotal),
-          ),
-        ),
-      ],
-    );
-  }
-}
 
-class _StatTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  const _StatTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: AppColors.gold.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(icon, color: AppColors.goldDark, size: 16),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textSecondaryLight,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+    return ResponsiveCenter(
+      maxWidth: 760,
+      child: GestureDetector(
+        onHorizontalDragEnd: widget.isAdmin ? _onSwipe : null,
+        child: CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+              sliver: SliverToBoxAdapter(
+                child: IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: DashSummaryCard(
+                          icon: Icons.calendar_month_rounded,
+                          iconColor: DashColors.goldDeep,
+                          iconBackground: const Color(0xFFFBF1D5),
+                          tint: const Color(0xFFFCF6E6),
+                          label: _isToday ? "Today's Events" : 'Events',
+                          value: '${events.length}',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const PendingEventsScreen(),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: DashSummaryCard(
+                          icon: Icons.currency_rupee_rounded,
+                          iconColor: const Color(0xFF2F6FB5),
+                          iconBackground: const Color(0xFFDDEBF9),
+                          tint: DashColors.lightBlue,
+                          label: _isToday ? "Today's Payments" : 'Payments',
+                          value: formatCurrency(dayTotal),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const PendingPaymentsScreen(),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            style: const TextStyle(
-              color: AppColors.textPrimaryLight,
-              fontWeight: FontWeight.w800,
-              fontSize: 19,
             ),
-          ),
-        ],
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 26, 16, 14),
+              sliver: SliverToBoxAdapter(
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        _isToday ? "Today's Events" : 'Events',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: DashColors.textPrimary(context),
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    DashCountBadge(
+                      count: showingAssigned
+                          ? staffingEvents.length
+                          : events.length,
+                    ),
+                    const Spacer(),
+                    const SizedBox(width: 8),
+                    DashDateSelector(date: _date, onTap: _pickDate),
+                  ],
+                ),
+              ),
+            ),
+            if (widget.isAdmin)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+                sliver: SliverToBoxAdapter(
+                  child: DashEventTabs(
+                    selected: _page,
+                    onChanged: _goTo,
+                    tabs: const [
+                      DashTab(Icons.calendar_month_rounded, 'My Events'),
+                      DashTab(Icons.groups_rounded, 'Assigned Members'),
+                    ],
+                  ),
+                ),
+              ),
+            if (loading)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.only(top: 40),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              )
+            else if (showingAssigned && staffingEvents.isEmpty)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
+                sliver: SliverToBoxAdapter(
+                  child: DashEmptyCard(
+                    icon: Icons.groups_rounded,
+                    message: _isToday
+                        ? 'No members assigned for today.'
+                        : 'No members assigned for this date.',
+                  ),
+                ),
+              )
+            else if (showingAssigned)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
+                sliver: SliverList.separated(
+                  itemCount: staffingEvents.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 16),
+                  itemBuilder: (context, index) {
+                    final event = staffingEvents[index];
+                    return DashStaffingEventCard(
+                      event: event,
+                      onEdit: () => showEditStaffingEventSheet(context, event),
+                      onPresentChanged: (member, present) =>
+                          _setPresent(event, member, present),
+                      onRemove: (member) => _removeMember(event, member),
+                    );
+                  },
+                ),
+              )
+            else if (events.isEmpty)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
+                sliver: SliverToBoxAdapter(
+                  child: DashEmptyCard(
+                    icon: Icons.event_available_rounded,
+                    message: _isToday
+                        ? 'No events scheduled for today.'
+                        : 'No events scheduled for this date.',
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    final event = events[index];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _TodaysEventCard(
+                        event: event,
+                        onEditTips: (tips) =>
+                            dataService.updateEventTips(event.id, tips),
+                        onEditAmount: (amount) =>
+                            dataService.updateEventAmount(event.id, amount),
+                        onPaymentDone: () async {
+                          await dataService.markBookingDone(event.id);
+                          _showMessage('Moved to Pending Payments');
+                        },
+                        onCancel: () async {
+                          final confirmed = await confirmDelete(context);
+                          if (!confirmed || !context.mounted) return;
+                          await dataService.deleteEventBooking(event.id);
+                          _showMessage('Event cancelled');
+                        },
+                      ),
+                    );
+                  }, childCount: events.length),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -1303,45 +792,6 @@ class _TipsButton extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _NoTodaysEventsCard extends StatelessWidget {
-  const _NoTodaysEventsCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.black12.withValues(alpha: 0.06)),
-      ),
-      child: Column(
-        children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: AppColors.secondary.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.event_available_rounded,
-              color: AppColors.secondary,
-              size: 32,
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'No events scheduled for today.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-          ),
-        ],
       ),
     );
   }
