@@ -198,111 +198,98 @@ class DashboardHeader extends StatelessWidget {
   }
 }
 
-/// A summary tile ("Today's Events", "Today's Payments"): tinted icon, small
-/// arrow button, label and a large value. The whole card is tappable.
+/// A compact summary tile ("Today's Events", "Today's Payments"). Both
+/// tiles share one cream + thin gold border treatment: icon and label on
+/// top, the value large and centered toward the bottom, and a small caption
+/// under it. Display-only.
 class DashSummaryCard extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor;
-  final Color iconBackground;
+  static const _bg = Color(0xFFFCF6E6);
+  static const _iconBg = Color(0xFFF5E6B8);
 
-  /// Light-mode tint the card's white background fades into.
-  final Color tint;
+  final IconData icon;
   final String label;
   final String value;
-  final VoidCallback onTap;
+  final String caption;
   const DashSummaryCard({
     super.key,
     required this.icon,
-    required this.iconColor,
-    required this.iconBackground,
-    required this.tint,
     required this.label,
     required this.value,
-    required this.onTap,
+    required this.caption,
   });
 
   @override
   Widget build(BuildContext context) {
-    final surface = DashColors.surface(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
-        child: Ink(
-          padding: const EdgeInsets.fromLTRB(16, 16, 12, 18),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: isDark ? [surface, surface] : [Colors.white, tint],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: DashColors.line(context)),
-            boxShadow: DashColors.softShadow,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    final radius = BorderRadius.circular(20);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      decoration: BoxDecoration(
+        color: isDark ? DashColors.gold.withValues(alpha: 0.10) : _bg,
+        borderRadius: radius,
+        border: Border.all(
+          color: DashColors.gold.withValues(alpha: 0.55),
+          width: 1.2,
+        ),
+        boxShadow: DashColors.softShadow,
+      ),
+      child: Column(
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? iconColor.withValues(alpha: 0.16)
-                          : iconBackground,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Icon(icon, color: iconColor, size: 22),
-                  ),
-                  const Spacer(),
-                  Container(
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      color: surface,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: DashColors.line(context)),
-                    ),
-                    child: Icon(
-                      Icons.arrow_forward_ios_rounded,
-                      size: 13,
-                      color: DashColors.textPrimary(context),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: DashColors.textMuted(context),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? DashColors.gold.withValues(alpha: 0.18)
+                      : _iconBg,
+                  borderRadius: BorderRadius.circular(10),
                 ),
+                child: Icon(icon, color: DashColors.goldDeep, size: 18),
               ),
-              const SizedBox(height: 4),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
+              const SizedBox(width: 8),
+              Expanded(
                 child: Text(
-                  value,
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: DashColors.textPrimary(context),
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.4,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
             ],
           ),
-        ),
+          const SizedBox(height: 8),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: TextStyle(
+                color: DashColors.textPrimary(context),
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.4,
+                height: 1.15,
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            caption,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: DashColors.textMuted(context),
+              fontSize: 11.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }

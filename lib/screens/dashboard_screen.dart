@@ -361,7 +361,7 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
         child: CustomScrollView(
           slivers: [
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
               sliver: SliverToBoxAdapter(
                 child: IntrinsicHeight(
                   child: Row(
@@ -370,32 +370,24 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
                       Expanded(
                         child: DashSummaryCard(
                           icon: Icons.calendar_month_rounded,
-                          iconColor: DashColors.goldDeep,
-                          iconBackground: const Color(0xFFFBF1D5),
-                          tint: const Color(0xFFFCF6E6),
                           label: _isToday ? "Today's Events" : 'Events',
                           value: '${events.length}',
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const PendingEventsScreen(),
-                            ),
-                          ),
+                          caption: _isToday
+                              ? (events.length == 1
+                                    ? 'Event scheduled today'
+                                    : 'Events scheduled today')
+                              : 'Scheduled on this date',
                         ),
                       ),
-                      const SizedBox(width: 14),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: DashSummaryCard(
                           icon: Icons.currency_rupee_rounded,
-                          iconColor: const Color(0xFF2F6FB5),
-                          iconBackground: const Color(0xFFDDEBF9),
-                          tint: DashColors.lightBlue,
                           label: _isToday ? "Today's Payments" : 'Payments',
                           value: formatCurrency(dayTotal),
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const PendingPaymentsScreen(),
-                            ),
-                          ),
+                          caption: _isToday
+                              ? 'Total for today'
+                              : 'Total for this date',
                         ),
                       ),
                     ],
@@ -404,30 +396,39 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
               ),
             ),
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 26, 16, 14),
+              padding: const EdgeInsets.fromLTRB(20, 20, 16, 12),
               sliver: SliverToBoxAdapter(
                 child: Row(
                   children: [
-                    Flexible(
-                      child: Text(
-                        _isToday ? "Today's Events" : 'Events',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: DashColors.textPrimary(context),
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.2,
+                    // Title + count shrink to fit rather than being cut off
+                    // ("Today' …") next to the date selector.
+                    Expanded(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _isToday ? "Today's Events" : 'Events',
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: DashColors.textPrimary(context),
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            DashCountBadge(
+                              count: showingAssigned
+                                  ? staffingEvents.length
+                                  : events.length,
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    DashCountBadge(
-                      count: showingAssigned
-                          ? staffingEvents.length
-                          : events.length,
-                    ),
-                    const Spacer(),
                     const SizedBox(width: 8),
                     DashDateSelector(date: _date, onTap: _pickDate),
                   ],
@@ -515,6 +516,11 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
                           await dataService.markBookingDone(event.id);
                           _showMessage('Moved to Pending Payments');
                         },
+                        onEdit: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => AddEventScreen(existing: event),
+                          ),
+                        ),
                         onCancel: () async {
                           final confirmed = await confirmDelete(context);
                           if (!confirmed || !context.mounted) return;
@@ -541,6 +547,7 @@ class _TodaysEventCard extends StatelessWidget {
   final ValueChanged<double> onEditTips;
   final ValueChanged<double> onEditAmount;
   final VoidCallback onPaymentDone;
+  final VoidCallback onEdit;
   final VoidCallback onCancel;
 
   const _TodaysEventCard({
@@ -548,42 +555,43 @@ class _TodaysEventCard extends StatelessWidget {
     required this.onEditTips,
     required this.onEditAmount,
     required this.onPaymentDone,
+    required this.onEdit,
     required this.onCancel,
   });
 
   @override
   Widget build(BuildContext context) {
+    const muted = TextStyle(color: AppColors.textSecondaryLight, fontSize: 13);
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.black12.withValues(alpha: 0.05)),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: DashColors.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
+            color: DashColors.navy.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 44,
-                height: 44,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
-                  color: paymentOrange.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(14),
+                  color: paymentOrange.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
                   Icons.person_rounded,
                   color: paymentOrange,
-                  size: 22,
+                  size: 21,
                 ),
               ),
               const SizedBox(width: 12),
@@ -593,28 +601,50 @@ class _TodaysEventCard extends StatelessWidget {
                   children: [
                     Text(
                       event.personName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 16,
                         color: AppColors.textPrimaryLight,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1),
                     Text(
                       event.eventName,
-                      style: const TextStyle(
-                        color: AppColors.textSecondaryLight,
-                        fontSize: 12.5,
-                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: muted,
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 8),
               _ShiftLabelBadge(shift: event.shift),
+              const SizedBox(width: 6),
+              Material(
+                color: DashColors.navy.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(10),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: onEdit,
+                  child: const Tooltip(
+                    message: 'Edit event',
+                    child: SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: Icon(
+                        Icons.edit_outlined,
+                        size: 18,
+                        color: DashColors.navy,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
-          const Divider(height: 26),
+          const Divider(height: 20, color: DashColors.border),
           Row(
             children: [
               const Icon(
@@ -622,15 +652,13 @@ class _TodaysEventCard extends StatelessWidget {
                 size: 15,
                 color: AppColors.textSecondaryLight,
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 5),
               Expanded(
                 child: Text(
                   event.location,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textSecondaryLight,
-                    fontSize: 13,
-                  ),
+                  style: muted,
                 ),
               ),
               const SizedBox(width: 12),
@@ -639,77 +667,105 @@ class _TodaysEventCard extends StatelessWidget {
                 size: 14,
                 color: AppColors.textSecondaryLight,
               ),
-              const SizedBox(width: 6),
-              Text(
-                formatEventDate(event.date),
-                style: const TextStyle(
-                  color: AppColors.textSecondaryLight,
-                  fontSize: 13,
-                ),
-              ),
+              const SizedBox(width: 5),
+              Text(formatEventDate(event.date), style: muted),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           IntrinsicHeight(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Expanded(
-                  child: EditableAmountChip(
+                  child: _AmountTile(
                     label: 'Total',
                     value: event.amount,
-                    background: amountChipBg,
-                    valueColor: paymentOrangeDark,
+                    background: const Color(0xFFFCF6E6),
+                    borderColor: DashColors.gold.withValues(alpha: 0.35),
+                    labelColor: DashColors.goldDeep,
+                    valueColor: DashColors.navy,
+                    hint: 'double-tap to edit',
                     onDoubleTap: () => _editAmount(context),
                   ),
                 ),
                 const SizedBox(width: 10),
-                _TipsButton(tips: event.tips, onTap: () => _editTips(context)),
+                Expanded(
+                  child: _AmountTile(
+                    label: 'Tips',
+                    value: event.tips,
+                    background: DashColors.lightBlue,
+                    borderColor: const Color(
+                      0xFF2F6FB5,
+                    ).withValues(alpha: 0.18),
+                    labelColor: const Color(0xFF2F6FB5),
+                    valueColor: const Color(0xFF2F6FB5),
+                    hint: 'tap to edit',
+                    onTap: () => _editTips(context),
+                  ),
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: ElevatedButton.icon(
-              onPressed: onPaymentDone,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: doneGreen,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 46,
+                  child: ElevatedButton.icon(
+                    onPressed: onPaymentDone,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: doneGreen,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                    ),
+                    icon: const Icon(
+                      Icons.check_circle_rounded,
+                      color: Colors.white,
+                      size: 19,
+                    ),
+                    label: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        'Event Done',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
-              icon: const Icon(Icons.check_circle_rounded, color: Colors.white),
-              label: const Text(
-                'Event Done',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
+              const SizedBox(width: 10),
+              Expanded(
+                child: SizedBox(
+                  height: 46,
+                  child: OutlinedButton.icon(
+                    onPressed: onCancel,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.danger,
+                      side: const BorderSide(color: AppColors.danger),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                    ),
+                    icon: const Icon(Icons.cancel_outlined, size: 19),
+                    label: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        'Cancel Event',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: OutlinedButton.icon(
-              onPressed: onCancel,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.danger,
-                side: const BorderSide(color: AppColors.danger),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              icon: const Icon(Icons.cancel_outlined),
-              label: const Text(
-                'Cancel Event',
-                style: TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
+            ],
           ),
         ],
       ),
@@ -761,32 +817,75 @@ class _ShiftLabelBadge extends StatelessWidget {
   }
 }
 
-class _TipsButton extends StatelessWidget {
-  final double tips;
-  final VoidCallback onTap;
-  const _TipsButton({required this.tips, required this.onTap});
+/// Centered "Total" / "Tips" tile on a today's-event card, with a small
+/// edit hint. Total edits on double-tap, Tips on a single tap.
+class _AmountTile extends StatelessWidget {
+  final String label;
+  final double value;
+  final Color background;
+  final Color borderColor;
+  final Color labelColor;
+  final Color valueColor;
+  final String hint;
+  final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
+
+  const _AmountTile({
+    required this.label,
+    required this.value,
+    required this.background,
+    required this.borderColor,
+    required this.labelColor,
+    required this.valueColor,
+    required this.hint,
+    this.onTap,
+    this.onDoubleTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: amountChipBg,
+    final shape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(14),
+      side: BorderSide(color: borderColor),
+    );
+    return Material(
+      color: background,
+      shape: shape,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        customBorder: shape,
         onTap: onTap,
+        onDoubleTap: onDoubleTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
+          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 6),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.add_rounded, size: 16, color: paymentOrangeDark),
-              const SizedBox(width: 4),
               Text(
-                tips > 0 ? formatCurrency(tips) : 'Tips',
-                style: const TextStyle(
-                  color: paymentOrangeDark,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13.5,
+                label,
+                style: TextStyle(
+                  color: labelColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  formatCurrency(value),
+                  style: TextStyle(
+                    color: valueColor,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                hint,
+                style: TextStyle(
+                  color: labelColor.withValues(alpha: 0.6),
+                  fontSize: 9,
                 ),
               ),
             ],
