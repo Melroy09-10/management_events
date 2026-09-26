@@ -619,6 +619,13 @@ class _HistoryCard extends StatelessWidget {
               ),
               ShiftBadge(shift: event.shift),
               IconButton(
+                icon: const Icon(Icons.undo_rounded, size: 19),
+                color: AppColors.goldDark,
+                tooltip: 'Move back to Pending Payments',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => _moveBackToPending(context),
+              ),
+              IconButton(
                 icon: const Icon(Icons.delete_outline_rounded, size: 19),
                 color: AppColors.danger,
                 visualDensity: VisualDensity.compact,
@@ -709,6 +716,36 @@ class _HistoryCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _moveBackToPending(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Move Back to Pending?'),
+        content: Text(
+          '"${event.eventName}" will be removed from History and shown again '
+          'in Pending Payments.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Move Back'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await dataService.markBookingUnpaid(event.id);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Moved back to Pending Payments')),
+      );
+    }
   }
 
   Future<void> _delete(BuildContext context) async {

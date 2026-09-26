@@ -492,6 +492,14 @@ class DataService {
     });
   }
 
+  /// Reverts a booking marked paid by mistake, moving it from History back
+  /// to Pending Payments.
+  Future<void> markBookingUnpaid(String bookingId) {
+    return _eventBookingsCollection.doc(bookingId).update({
+      'status': BookingStatus.pendingPayment.storageValue,
+    });
+  }
+
   /// Marks many bookings as paid at once, for Pending Payments' "Done All"
   /// bulk action.
   Future<void> markBookingsPaid(Iterable<String> bookingIds) {
