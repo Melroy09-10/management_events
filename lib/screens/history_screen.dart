@@ -1,23 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../models/event_booking.dart';
 import '../services/data_service.dart';
-import '../theme/app_theme.dart';
 import '../utils/currency.dart';
 import '../widgets/confirm_delete_dialog.dart';
-import '../widgets/payment_chips.dart';
-import '../widgets/responsive_center.dart';
+import '../widgets/history_widgets.dart';
 import '../widgets/searchable_dropdown_field.dart';
 
 final _monthKeyFormat = DateFormat('yyyy-MM');
 final _monthLabelFormat = DateFormat('MMM yyyy');
 
 /// Events whose payment has been settled (marked Done from Pending
-/// Payments). Read-only besides Delete. Filterable by month and event type,
-/// with a running Total Events / Total Amount summary for the current
-/// filter.
+/// Payments). Each record can be restored to Pending Payments or deleted.
+/// Filterable by month and event type, with a running Total Events / Total
+/// Amount summary for the current filter.
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
 
@@ -26,288 +25,322 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
+  static const _maxContentWidth = 760.0;
+
   String? _monthFilter;
   String? _eventTypeFilter;
   bool _showFilteredDetails = false;
+
+  /// Ids of records currently animating out after a restore/delete.
+  final Set<String> _leaving = {};
+
+  // Created once so setState (filters, exit animations) doesn't hand
+  // StreamBuilder a fresh Firestore listener and flash the loading state.
+  late final Stream<List<EventBooking>> _historyStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _historyStream = context.read<DataService>().history();
+  }
 
   @override
   Widget build(BuildContext context) {
     final dataService = context.read<DataService>();
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('History')),
-      body: SafeArea(
-        child: StreamBuilder<List<EventBooking>>(
-          stream: dataService.history(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snapshot.hasError) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(
-                    'Could not load history:\n${snapshot.error}',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: AppColors.danger),
-                  ),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: HistoryColors.ivory,
+        body: StreamBuilder<List<EventBooking>>(
+          stream: _historyStream,
+          builder: (context, snapshot) => CustomScrollView(
+            slivers: [
+              const SliverToBoxAdapter(child: HistoryHeader()),
+              ..._buildBody(snapshot, dataService),
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 24 + MediaQuery.paddingOf(context).bottom,
                 ),
-              );
-            }
-
-            final events = snapshot.data ?? const <EventBooking>[];
-            if (events.isEmpty) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.history_rounded,
-                        size: 56,
-                        color: AppColors.textSecondaryLight,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'No completed payments yet',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
-
-            final months =
-                events
-                    .map((e) => _monthKeyFormat.format(e.date))
-                    .toSet()
-                    .toList()
-                  ..sort((a, b) => b.compareTo(a));
-            final eventTypes = events.map((e) => e.eventType).toSet().toList()
-              ..sort();
-
-            final filtered = events.where((e) {
-              final matchesMonth =
-                  _monthFilter == null ||
-                  _monthKeyFormat.format(e.date) == _monthFilter;
-              final matchesType =
-                  _eventTypeFilter == null || e.eventType == _eventTypeFilter;
-              return matchesMonth && matchesType;
-            }).toList();
-            final totalAmount = filtered.fold<double>(
-              0,
-              (sum, e) => sum + e.amount + e.tips,
-            );
-            final hasFilter = _monthFilter != null || _eventTypeFilter != null;
-
-            return ResponsiveCenter(
-              maxWidth: 760,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _SummaryTile(
-                            icon: Icons.event_note_rounded,
-                            label: 'Total Events',
-                            value: '${filtered.length}',
-                            background: AppColors.primary,
-                            foreground: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _SummaryTile(
-                            icon: Icons.currency_rupee_rounded,
-                            label: 'Total Amount',
-                            value: formatCurrency(totalAmount),
-                            background: AppColors.gold,
-                            foreground: AppColors.primaryDark,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.05),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(
-                          color: AppColors.primary.withValues(alpha: 0.16),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.filter_alt_outlined,
-                                size: 16,
-                                color: AppColors.primary,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Filters',
-                                style: Theme.of(context).textTheme.labelMedium
-                                    ?.copyWith(
-                                      color: AppColors.primary,
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: 0.2,
-                                    ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: SearchableDropdownField<String?>(
-                                  key: ValueKey('month-$_monthFilter'),
-                                  value: _monthFilter,
-                                  label: 'Month',
-                                  icon: Icons.calendar_month_outlined,
-                                  hintText: 'Search a month…',
-                                  options: [
-                                    const SearchableDropdownOption<String?>(
-                                      value: null,
-                                      label: 'All months',
-                                    ),
-                                    for (final month in months)
-                                      SearchableDropdownOption<String?>(
-                                        value: month,
-                                        label: _monthLabelFormat.format(
-                                          DateTime.parse('$month-01'),
-                                        ),
-                                      ),
-                                  ],
-                                  onSelected: (value) => setState(() {
-                                    _monthFilter = value;
-                                    _showFilteredDetails = false;
-                                  }),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: SearchableDropdownField<String?>(
-                                  key: ValueKey('type-$_eventTypeFilter'),
-                                  value: _eventTypeFilter,
-                                  label: 'Event Type',
-                                  icon: Icons.category_outlined,
-                                  hintText: 'Search an event type…',
-                                  options: [
-                                    const SearchableDropdownOption<String?>(
-                                      value: null,
-                                      label: 'All events',
-                                    ),
-                                    for (final type in eventTypes)
-                                      SearchableDropdownOption<String?>(
-                                        value: type,
-                                        label: type,
-                                      ),
-                                  ],
-                                  onSelected: (value) => setState(() {
-                                    _eventTypeFilter = value;
-                                    _showFilteredDetails = false;
-                                  }),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: filtered.isEmpty
-                        ? Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(24),
-                              child: Text(
-                                'No history matches these filters.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: AppColors.textSecondaryLight,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          )
-                        : (hasFilter && !_showFilteredDetails)
-                        ? Align(
-                            alignment: Alignment.topCenter,
-                            child: _ViewDetailsPrompt(
-                              filterLabel: _filterLabel(),
-                              count: filtered.length,
-                              totalAmount: totalAmount,
-                              onDoubleTap: () =>
-                                  setState(() => _showFilteredDetails = true),
-                            ),
-                          )
-                        : Column(
-                            children: [
-                              if (hasFilter)
-                                Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    12,
-                                    0,
-                                    12,
-                                    4,
-                                  ),
-                                  child: Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: TextButton.icon(
-                                      onPressed: () => setState(
-                                        () => _showFilteredDetails = false,
-                                      ),
-                                      icon: const Icon(
-                                        Icons.expand_less_rounded,
-                                        size: 18,
-                                      ),
-                                      label: const Text('Hide details'),
-                                    ),
-                                  ),
-                                ),
-                              Expanded(
-                                child: ListView.separated(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    16,
-                                    0,
-                                    16,
-                                    16,
-                                  ),
-                                  itemCount: filtered.length,
-                                  separatorBuilder: (_, _) =>
-                                      const SizedBox(height: 12),
-                                  itemBuilder: (context, index) => _HistoryCard(
-                                    event: filtered[index],
-                                    dataService: dataService,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                  ),
-                ],
               ),
-            );
-          },
+            ],
+          ),
         ),
       ),
     );
   }
 
-  /// A human label for the currently active filter(s), e.g. "September 2026"
-  /// or "September 2026 • Catering", shown on the details prompt.
+  List<Widget> _buildBody(
+    AsyncSnapshot<List<EventBooking>> snapshot,
+    DataService dataService,
+  ) {
+    if (snapshot.connectionState == ConnectionState.waiting) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: CircularProgressIndicator(color: HistoryColors.navy),
+          ),
+        ),
+      ];
+    }
+    if (snapshot.hasError) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: HistoryEmptyState(
+              icon: Icons.error_outline_rounded,
+              accent: HistoryColors.danger,
+              title: 'Could not load history',
+              message: '${snapshot.error}',
+            ),
+          ),
+        ),
+      ];
+    }
+
+    final events = snapshot.data ?? const <EventBooking>[];
+    if (events.isEmpty) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: HistoryEmptyState(
+              icon: Icons.history_rounded,
+              title: 'No completed payments yet',
+              message:
+                  'Events you mark as paid in Pending Payments will appear here.',
+            ),
+          ),
+        ),
+      ];
+    }
+
+    // Forget exit-animation ids once their records have left the stream, so
+    // a record that is later paid again shows up normally.
+    _leaving.removeWhere((id) => !events.any((e) => e.id == id));
+
+    final months =
+        events.map((e) => _monthKeyFormat.format(e.date)).toSet().toList()
+          ..sort((a, b) => b.compareTo(a));
+    final eventTypes = events.map((e) => e.eventType).toSet().toList()..sort();
+
+    final filtered = events.where((e) {
+      final matchesMonth =
+          _monthFilter == null ||
+          _monthKeyFormat.format(e.date) == _monthFilter;
+      final matchesType =
+          _eventTypeFilter == null || e.eventType == _eventTypeFilter;
+      return matchesMonth && matchesType;
+    }).toList();
+    final totalAmount = filtered.fold<double>(
+      0,
+      (sum, e) => sum + e.amount + e.tips,
+    );
+    final hasFilter = _monthFilter != null || _eventTypeFilter != null;
+    final showList =
+        filtered.isNotEmpty && (!hasFilter || _showFilteredDetails);
+
+    return [
+      _boxed(
+        HistoryAppear(
+          child: Row(
+            children: [
+              Expanded(
+                child: HistorySummaryCard(
+                  icon: Icons.calendar_month_rounded,
+                  label: 'Total Events',
+                  value: '${filtered.length}',
+                  background: HistoryColors.navy,
+                  iconBackground: HistoryColors.navySoft,
+                  foreground: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: HistorySummaryCard(
+                  icon: Icons.currency_rupee_rounded,
+                  label: 'Total Amount',
+                  value: formatCurrency(totalAmount),
+                  background: HistoryColors.gold,
+                  iconBackground: HistoryColors.goldDeep.withValues(
+                    alpha: 0.35,
+                  ),
+                  foreground: HistoryColors.navyDeep,
+                ),
+              ),
+            ],
+          ),
+        ),
+        top: 20,
+      ),
+      _boxed(
+        HistoryFilterPanel(
+          onClear: hasFilter
+              ? () => setState(() {
+                  _monthFilter = null;
+                  _eventTypeFilter = null;
+                  _showFilteredDetails = false;
+                })
+              : null,
+          fields: [
+            SearchableDropdownField<String?>(
+              key: ValueKey('month-$_monthFilter'),
+              value: _monthFilter,
+              label: 'Month',
+              icon: Icons.calendar_month_outlined,
+              hintText: 'Search a month…',
+              options: [
+                const SearchableDropdownOption<String?>(
+                  value: null,
+                  label: 'All months',
+                ),
+                for (final month in months)
+                  SearchableDropdownOption<String?>(
+                    value: month,
+                    label: _monthLabelFormat.format(
+                      DateTime.parse('$month-01'),
+                    ),
+                  ),
+              ],
+              onSelected: (value) => setState(() {
+                _monthFilter = value;
+                _showFilteredDetails = false;
+              }),
+            ),
+            SearchableDropdownField<String?>(
+              key: ValueKey('type-$_eventTypeFilter'),
+              value: _eventTypeFilter,
+              label: 'Event Type',
+              icon: Icons.event_outlined,
+              hintText: 'Search an event type…',
+              options: [
+                const SearchableDropdownOption<String?>(
+                  value: null,
+                  label: 'All events',
+                ),
+                for (final type in eventTypes)
+                  SearchableDropdownOption<String?>(value: type, label: type),
+              ],
+              onSelected: (value) => setState(() {
+                _eventTypeFilter = value;
+                _showFilteredDetails = false;
+              }),
+            ),
+          ],
+        ),
+        top: 20,
+      ),
+      _boxed(
+        SizedBox(
+          height: 40,
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Completed Events',
+                  style: TextStyle(
+                    color: HistoryColors.text,
+                    fontSize: 16.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              if (hasFilter && _showFilteredDetails && filtered.isNotEmpty)
+                TextButton.icon(
+                  onPressed: () => setState(() => _showFilteredDetails = false),
+                  style: TextButton.styleFrom(
+                    foregroundColor: HistoryColors.goldDeep,
+                  ),
+                  icon: const Icon(Icons.expand_less_rounded, size: 18),
+                  label: const Text('Hide details'),
+                ),
+            ],
+          ),
+        ),
+        top: 24,
+      ),
+      if (filtered.isEmpty)
+        _boxed(
+          const HistoryEmptyState(
+            icon: Icons.search_off_rounded,
+            title: 'No matching records',
+            message:
+                'No history matches these filters. Try another month '
+                'or event type.',
+          ),
+        )
+      else if (!showList)
+        _boxed(
+          HistoryAppear(
+            child: HistoryFilteredSummary(
+              filterLabel: _filterLabel(),
+              count: filtered.length,
+              totalAmount: totalAmount,
+              onDoubleTap: () => setState(() => _showFilteredDetails = true),
+            ),
+          ),
+          top: 8,
+        )
+      else
+        SliverPadding(
+          padding: const EdgeInsets.only(top: 8),
+          sliver: SliverList.builder(
+            itemCount: filtered.length,
+            itemBuilder: (context, index) {
+              final event = filtered[index];
+              return _constrained(
+                KeyedSubtree(
+                  key: ValueKey('history-${event.id}'),
+                  child: HistoryExit(
+                    leaving: _leaving.contains(event.id),
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: HistoryAppear(
+                        index: index,
+                        child: HistoryEventCard(
+                          event: event,
+                          onRestore: () => _restore(event, dataService),
+                          onDelete: () => _delete(event, dataService),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+    ];
+  }
+
+  /// Wraps a non-sliver [child] with the page's horizontal margins and max
+  /// content width.
+  Widget _boxed(Widget child, {double top = 0}) {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: EdgeInsets.only(top: top),
+        child: _constrained(child),
+      ),
+    );
+  }
+
+  Widget _constrained(Widget child) {
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _maxContentWidth),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  /// A human label for the currently active filter(s), e.g. "Sep 2026"
+  /// or "Sep 2026 • Catering", shown on the filtered summary.
   String _filterLabel() {
     final monthLabel = _monthFilter == null
         ? null
@@ -315,410 +348,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final parts = <String>[?monthLabel, ?_eventTypeFilter];
     return parts.join(' • ');
   }
-}
 
-/// Shown instead of the full record list while a filter is active — a
-/// compact summary (what's filtered, how many events, total amount) with a
-/// double-tap to reveal every matching record in full.
-class _ViewDetailsPrompt extends StatelessWidget {
-  final String filterLabel;
-  final int count;
-  final double totalAmount;
-  final VoidCallback onDoubleTap;
-  const _ViewDetailsPrompt({
-    required this.filterLabel,
-    required this.count,
-    required this.totalAmount,
-    required this.onDoubleTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(18),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onDoubleTap: onDoubleTap,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppColors.gold.withValues(alpha: 0.35)),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primary.withValues(alpha: 0.08),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [AppColors.primaryDark, AppColors.primary],
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight,
-                    ),
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(17),
-                      topRight: Radius.circular(17),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 30,
-                        height: 30,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.18),
-                          borderRadius: BorderRadius.circular(9),
-                        ),
-                        child: const Icon(
-                          Icons.receipt_long_outlined,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          filterLabel.isEmpty
-                              ? 'Filtered results'
-                              : filterLabel,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14.5,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(18),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _MiniStat(
-                              label: 'Total Events',
-                              value: '$count',
-                              valueColor: AppColors.primary,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Container(
-                            width: 1,
-                            height: 34,
-                            color: AppColors.border,
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: _MiniStat(
-                              label: 'Total Amount',
-                              value: formatCurrency(totalAmount),
-                              valueColor: AppColors.goldDark,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.touch_app_outlined,
-                            size: 14,
-                            color: AppColors.goldDark,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Double-tap to view the full details',
-                            style: TextStyle(
-                              color: AppColors.textSecondaryLight,
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MiniStat extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color valueColor;
-  const _MiniStat({
-    required this.label,
-    required this.value,
-    required this.valueColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: AppColors.textSecondaryLight,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(
-            color: AppColors.textPrimaryLight,
-            fontWeight: FontWeight.w800,
-            fontSize: 18,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SummaryTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color background;
-  final Color foreground;
-  const _SummaryTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.background,
-    required this.foreground,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: background.withValues(alpha: 0.35),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: foreground.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, color: foreground, size: 18),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: foreground.withValues(alpha: 0.85),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            value,
-            style: TextStyle(
-              color: foreground,
-              fontWeight: FontWeight.w800,
-              fontSize: 20,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HistoryCard extends StatelessWidget {
-  final EventBooking event;
-  final DataService dataService;
-  const _HistoryCard({required this.event, required this.dataService});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      event.eventName,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      event.eventType,
-                      style: TextStyle(
-                        color: AppColors.textSecondaryLight,
-                        fontSize: 12.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              ShiftBadge(shift: event.shift),
-              IconButton(
-                icon: const Icon(Icons.undo_rounded, size: 19),
-                color: AppColors.goldDark,
-                tooltip: 'Move back to Pending Payments',
-                visualDensity: VisualDensity.compact,
-                onPressed: () => _moveBackToPending(context),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline_rounded, size: 19),
-                color: AppColors.danger,
-                visualDensity: VisualDensity.compact,
-                onPressed: () => _delete(context),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Icon(
-                Icons.calendar_today_outlined,
-                size: 15,
-                color: AppColors.textSecondaryLight,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                formatEventDate(event.date),
-                style: TextStyle(
-                  color: AppColors.textSecondaryLight,
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Icon(
-                Icons.call_outlined,
-                size: 15,
-                color: AppColors.textSecondaryLight,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  event.personName,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AppColors.textSecondaryLight,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Icon(
-                Icons.location_on_outlined,
-                size: 15,
-                color: AppColors.textSecondaryLight,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  event.location,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AppColors.textSecondaryLight,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: EditableAmountChip(
-                  label: 'Amount',
-                  value: event.amount,
-                  background: amountChipBg,
-                  valueColor: AppColors.textPrimaryLight,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: EditableAmountChip(
-                  label: 'Tips',
-                  value: event.tips,
-                  background: tipsChipBg,
-                  valueColor: tipsChipText,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(child: TotalChip(value: event.amount + event.tips)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _moveBackToPending(BuildContext context) async {
+  Future<void> _restore(EventBooking event, DataService dataService) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -739,23 +370,45 @@ class _HistoryCard extends StatelessWidget {
         ],
       ),
     );
-    if (confirmed != true || !context.mounted) return;
-    await dataService.markBookingUnpaid(event.id);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Moved back to Pending Payments')),
-      );
-    }
+    if (confirmed != true || !mounted) return;
+    await _animateOutThen(
+      event.id,
+      () => dataService.markBookingUnpaid(event.id),
+      successMessage: 'Moved back to Pending Payments',
+    );
   }
 
-  Future<void> _delete(BuildContext context) async {
+  Future<void> _delete(EventBooking event, DataService dataService) async {
     final confirmed = await confirmDelete(context);
-    if (!confirmed || !context.mounted) return;
-    await dataService.deleteEventBooking(event.id);
-    if (context.mounted) {
+    if (!confirmed || !mounted) return;
+    await _animateOutThen(
+      event.id,
+      () => dataService.deleteEventBooking(event.id),
+      successMessage: 'Event deleted',
+    );
+  }
+
+  /// Plays the card's exit animation, then runs [action]. If it fails the
+  /// card is brought back and the error shown.
+  Future<void> _animateOutThen(
+    String id,
+    Future<void> Function() action, {
+    required String successMessage,
+  }) async {
+    setState(() => _leaving.add(id));
+    await Future<void>.delayed(HistoryExit.duration);
+    try {
+      await action();
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Event deleted')));
+      ).showSnackBar(SnackBar(content: Text(successMessage)));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _leaving.remove(id));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Something went wrong: $e')));
     }
   }
 }
