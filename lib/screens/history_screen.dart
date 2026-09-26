@@ -9,6 +9,7 @@ import '../utils/currency.dart';
 import '../widgets/confirm_delete_dialog.dart';
 import '../widgets/history_widgets.dart';
 import '../widgets/searchable_dropdown_field.dart';
+import '../widgets/app_drawer.dart';
 
 final _monthKeyFormat = DateFormat('yyyy-MM');
 final _monthLabelFormat = DateFormat('MMM yyyy');
@@ -51,6 +52,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
+        drawer: const AppDrawer(),
         backgroundColor: HistoryColors.ivory,
         body: StreamBuilder<List<EventBooking>>(
           stream: _historyStream,

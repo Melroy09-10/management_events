@@ -8,6 +8,7 @@ import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_text_field.dart';
 import '../widgets/primary_button.dart';
+import '../widgets/app_drawer.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -20,7 +21,11 @@ class ProfileScreen extends StatelessWidget {
         user.phone.trim().isEmpty ||
         user.place.trim().isEmpty;
 
+    // False when shown as the forced "complete your profile" root page.
+    final canPop = Navigator.of(context).canPop();
+
     return Scaffold(
+      drawer: canPop ? const AppDrawer() : null,
       appBar: AppBar(title: const Text('Profile')),
       body: SafeArea(
         child: SingleChildScrollView(

@@ -8,6 +8,7 @@ import '../widgets/confirm_delete_dialog.dart';
 import '../widgets/history_widgets.dart';
 import '../widgets/pending_event_widgets.dart';
 import 'add_event_screen.dart';
+import '../widgets/app_drawer.dart';
 
 /// All of the current user's own events (not Admin staffing events) that
 /// haven't been marked Done yet (any date). Tapping Done here moves an
@@ -42,6 +43,7 @@ class _PendingEventsScreenState extends State<PendingEventsScreen> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
+        drawer: const AppDrawer(),
         backgroundColor: HistoryColors.ivory,
         body: StreamBuilder<List<EventBooking>>(
           stream: _pendingStream,

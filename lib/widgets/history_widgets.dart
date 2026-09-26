@@ -35,7 +35,11 @@ class HistoryHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canPop = Navigator.of(context).canPop();
+    // Menu icon when the screen has the app drawer (Dashboard is reachable
+    // from there), otherwise a back arrow if there's somewhere to go back to.
+    final hasDrawer = Scaffold.maybeOf(context)?.hasDrawer ?? false;
+    final canGoBack = !hasDrawer && Navigator.of(context).canPop();
+    final hasLeading = hasDrawer || canGoBack;
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -53,18 +57,24 @@ class HistoryHeader extends StatelessWidget {
             SafeArea(
               bottom: false,
               child: Padding(
-                padding: EdgeInsets.fromLTRB(canPop ? 4 : 20, 8, 20, 26),
+                padding: EdgeInsets.fromLTRB(hasLeading ? 4 : 20, 8, 20, 26),
                 child: Row(
                   children: [
-                    if (canPop) ...[
+                    if (canGoBack)
                       IconButton(
                         tooltip: 'Back',
                         icon: const Icon(Icons.arrow_back_rounded),
                         color: Colors.white,
                         onPressed: () => Navigator.of(context).maybePop(),
                       ),
-                      const SizedBox(width: 4),
-                    ],
+                    if (hasDrawer)
+                      IconButton(
+                        tooltip: 'Menu',
+                        icon: const Icon(Icons.menu_rounded),
+                        color: Colors.white,
+                        onPressed: () => Scaffold.of(context).openDrawer(),
+                      ),
+                    if (hasLeading) const SizedBox(width: 4),
                     Expanded(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,

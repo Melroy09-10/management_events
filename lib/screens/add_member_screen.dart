@@ -17,6 +17,7 @@ import '../widgets/payment_chips.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/responsive_center.dart';
 import '../widgets/searchable_dropdown_field.dart';
+import '../widgets/app_drawer.dart';
 
 /// Opens the "pick members to assign" sheet for [event] — shared by the
 /// Assign Members page and the Admin Pending Events page.
@@ -50,6 +51,7 @@ class AddMemberScreen extends StatelessWidget {
     final dataService = context.read<DataService>();
 
     return Scaffold(
+      drawer: const AppDrawer(),
       appBar: AppBar(title: const Text('Assign Members')),
       body: SafeArea(
         child: StreamBuilder<List<EventBooking>>(
@@ -1304,6 +1306,7 @@ class _AllocationCandidate {
   final String id;
   final String name;
   final String place;
+
   /// True for an entry from the Admin's own roster (the Contact page),
   /// false for a login account.
   final bool isContact;

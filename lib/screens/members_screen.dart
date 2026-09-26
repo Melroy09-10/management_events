@@ -14,6 +14,7 @@ import '../widgets/app_text_field.dart';
 import '../widgets/confirm_delete_dialog.dart';
 import '../widgets/contact_import.dart';
 import '../widgets/primary_button.dart';
+import '../widgets/app_drawer.dart';
 
 /// Admin/Super Admin only: the signed-in Admin's own roster of Members —
 /// name & phone number only, no Firebase Auth login of their own. Used to
@@ -46,6 +47,7 @@ class MembersScreen extends StatelessWidget {
     // --- end temporary debug logging ---
 
     return Scaffold(
+      drawer: const AppDrawer(),
       appBar: AppBar(title: const Text('Members')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddMemberSheet(context),

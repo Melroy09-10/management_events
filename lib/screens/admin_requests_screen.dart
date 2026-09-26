@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/admin_request.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_drawer.dart';
 
 /// Lets the Super Admin review pending "make me an Admin" requests from
 /// users and approve or reject each one.
@@ -15,6 +16,7 @@ class AdminRequestsScreen extends StatelessWidget {
     final auth = context.read<AuthService>();
 
     return Scaffold(
+      drawer: const AppDrawer(),
       appBar: AppBar(title: const Text('Admin Requests')),
       body: SafeArea(
         child: StreamBuilder<List<AdminRequest>>(

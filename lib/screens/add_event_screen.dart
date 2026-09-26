@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/responsive_center.dart';
 import '../widgets/searchable_dropdown_field.dart';
+import '../widgets/app_drawer.dart';
 
 const _months = [
   'Jan',
@@ -333,6 +334,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
     final dataService = context.read<DataService>();
 
     return Scaffold(
+      drawer: widget.existing == null ? const AppDrawer() : null,
       appBar: AppBar(title: Text(_isEditing ? 'Edit Event' : 'Add Event')),
       body: SafeArea(
         child: StreamBuilder<List<EventType>>(

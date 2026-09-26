@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../utils/currency.dart';
 import '../widgets/confirm_delete_dialog.dart';
 import '../widgets/payment_chips.dart';
+import '../widgets/app_drawer.dart';
 
 /// Shows [message] (with an optional [subtitle] line) as a plain, non-
 /// interactive floating toast centered on screen — no buttons, no tap
@@ -148,12 +149,14 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Scaffold(
+            drawer: const AppDrawer(),
             appBar: AppBar(title: const Text('Pending Payments')),
             body: const Center(child: CircularProgressIndicator()),
           );
         }
         if (snapshot.hasError) {
           return Scaffold(
+            drawer: const AppDrawer(),
             appBar: AppBar(title: const Text('Pending Payments')),
             body: Center(
               child: Padding(
@@ -171,6 +174,7 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
         final events = snapshot.data ?? const <EventBooking>[];
         if (events.isEmpty) {
           return Scaffold(
+            drawer: const AppDrawer(),
             appBar: AppBar(title: const Text('Pending Payments')),
             body: Center(
               child: Padding(
@@ -212,6 +216,7 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
         };
 
         return Scaffold(
+          drawer: const AppDrawer(),
           appBar: AppBar(title: const Text('Pending Payments')),
           body: Column(
             children: [

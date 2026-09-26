@@ -4,6 +4,7 @@ import '../theme/app_theme.dart';
 import '../widgets/responsive_center.dart';
 import 'event_details_screen.dart';
 import 'person_data_screen.dart';
+import '../widgets/app_drawer.dart';
 
 class ManageDataScreen extends StatelessWidget {
   const ManageDataScreen({super.key});
@@ -11,6 +12,7 @@ class ManageDataScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      drawer: const AppDrawer(),
       appBar: AppBar(title: const Text('Manage Data')),
       body: SafeArea(
         child: ResponsiveCenter(

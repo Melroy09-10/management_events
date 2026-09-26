@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/event_booking.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_drawer.dart';
 import '../widgets/confirm_delete_dialog.dart';
 import '../widgets/payment_chips.dart';
 import 'add_member_screen.dart';
@@ -26,6 +27,7 @@ class AdminPendingEventsScreen extends StatelessWidget {
     final dataService = context.read<DataService>();
 
     return Scaffold(
+      drawer: const AppDrawer(),
       appBar: AppBar(title: const Text('Pending Events')),
       body: SafeArea(
         child: StreamBuilder<List<EventBooking>>(
