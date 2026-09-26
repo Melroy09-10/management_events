@@ -83,22 +83,6 @@ void _showCenteredToast(
   });
 }
 
-enum _CopyFilter { all, copied, notCopied }
-
-extension on _CopyFilter {
-  String get label => switch (this) {
-    _CopyFilter.all => 'All',
-    _CopyFilter.copied => 'Copied',
-    _CopyFilter.notCopied => 'Not Copied',
-  };
-
-  bool matches(EventBooking event) => switch (this) {
-    _CopyFilter.all => true,
-    _CopyFilter.copied => event.copied,
-    _CopyFilter.notCopied => !event.copied,
-  };
-}
-
 /// Events that have been completed and are awaiting payment collection,
 /// grouped by the person who called. Tapping Done settles the payment and
 /// moves the event into History.
@@ -110,17 +94,12 @@ class PendingPaymentsScreen extends StatefulWidget {
 }
 
 class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
-  _CopyFilter _filter = _CopyFilter.all;
-
   // Search (event / person / location / type) and single-date filter —
   // both applied on the client to the already-loaded list.
   bool _searching = false;
   final _searchController = TextEditingController();
   String _query = '';
   DateTime? _dateFilter;
-
-  /// Person groups the user has collapsed.
-  final Set<String> _collapsed = {};
 
   // Created once and reused across rebuilds. Calling dataService
   // .pendingPayments() again inside build() would hand StreamBuilder a
@@ -261,22 +240,23 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
           );
         }
 
-        final filtered = events
-            .where(
-              (e) => _filter.matches(e) && _matchesSearch(e) && _matchesDate(e),
-            )
-            .toList();
+        final filtered =
+            events.where((e) => _matchesSearch(e) && _matchesDate(e)).toList()
+              ..sort(newestFirst);
         final grandTotal = filtered.fold<double>(
           0,
           (sum, e) => sum + e.amount + e.tips,
         );
+        // Newest events on top: within each person, and the person whose
+        // latest event is newest comes first. [filtered] is already
+        // newest-first, so a person's first appearance is their latest event.
+        // (A set literal keeps first-insertion order.)
         final personNames = <String>{
           for (final e in filtered) e.personName,
-        }.toList()..sort();
+        }.toList();
         final grouped = <String, List<EventBooking>>{
           for (final name in personNames)
-            name: filtered.where((e) => e.personName == name).toList()
-              ..sort((a, b) => a.date.compareTo(b.date)),
+            name: filtered.where((e) => e.personName == name).toList(),
         };
 
         return _scaffold(
@@ -318,16 +298,10 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
                           setState(() => _query = value.trim()),
                     ),
                   ),
-                PaymentSegmentedControl<_CopyFilter>(
-                  key: const ValueKey('filter'),
-                  segments: [for (final f in _CopyFilter.values) (f, f.label)],
-                  selected: _filter,
-                  onChanged: (f) => setState(() => _filter = f),
-                ),
                 if (_dateFilter != null)
                   Padding(
                     key: const ValueKey('date-chip'),
-                    padding: const EdgeInsets.only(top: 10),
+                    padding: const EdgeInsets.only(bottom: 10),
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: InputChip(
@@ -347,7 +321,7 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
                       ),
                     ),
                   ),
-                const SizedBox(key: ValueKey('gap-summary'), height: 14),
+                const SizedBox(key: ValueKey('gap-summary'), height: 8),
                 PaymentSummaryCard(
                   key: const ValueKey('grand-total'),
                   total: grandTotal,
@@ -359,9 +333,7 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
                     key: const ValueKey('no-match'),
                     padding: const EdgeInsets.only(top: 40),
                     child: Text(
-                      _query.isNotEmpty || _dateFilter != null
-                          ? 'No pending payments match your search.'
-                          : 'No ${_filter.label.toLowerCase()} events',
+                      'No pending payments match your search.',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: PayColors.textSecondary,
@@ -379,41 +351,22 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
                         PaymentPersonHeader(
                           name: name,
                           count: grouped[name]!.length,
-                          expanded: !_collapsed.contains(name),
-                          onToggle: () => setState(() {
-                            if (!_collapsed.remove(name)) _collapsed.add(name);
-                          }),
                           onCopy: () => _copySummary(name, grouped[name]!),
                         ),
-                        AnimatedSize(
-                          duration: const Duration(milliseconds: 220),
-                          curve: Curves.easeInOut,
-                          alignment: Alignment.topCenter,
-                          child: _collapsed.contains(name)
-                              ? const SizedBox(width: double.infinity)
-                              : Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    for (final event in grouped[name]!)
-                                      Padding(
-                                        key: ValueKey('event-${event.id}'),
-                                        padding: const EdgeInsets.only(top: 10),
-                                        child: PaymentEventCard(
-                                          event: event,
-                                          onDone: () => _markPaid(event),
-                                          onAddTip: () => _editTips(event),
-                                          onDelete: () => _delete(event),
-                                          onEditAmount: () =>
-                                              _editAmount(event),
-                                          onEditTips: () => _editTips(event),
-                                          onUndoCopied: () =>
-                                              _undoCopied(event),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                        ),
+                        for (final event in grouped[name]!)
+                          Padding(
+                            key: ValueKey('event-${event.id}'),
+                            padding: const EdgeInsets.only(top: 10),
+                            child: PaymentEventCard(
+                              event: event,
+                              onDone: () => _markPaid(event),
+                              onAddTip: () => _editTips(event),
+                              onDelete: () => _delete(event),
+                              onEditAmount: () => _editAmount(event),
+                              onEditTips: () => _editTips(event),
+                              onUndoCopied: () => _undoCopied(event),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -438,6 +391,10 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
     } else {
       final picked = await showSelectEventsDialog(context, events);
       if (picked == null || !mounted) return;
+      if (picked.markPaid) {
+        await _markSelectedPaid(picked.toCopy);
+        return;
+      }
       if (picked.toCopy.isEmpty && picked.toUnmark.isEmpty) return;
       chosen = picked.toCopy;
       toUnmark = picked.toUnmark;
@@ -469,7 +426,7 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
       return;
     }
 
-    chosen = [...chosen]..sort((a, b) => a.date.compareTo(b.date));
+    chosen = [...chosen]..sort(newestFirst);
 
     await Clipboard.setData(ClipboardData(text: _buildSummary(name, chosen)));
     if (!mounted) return;
@@ -496,6 +453,29 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
         }
       }),
     );
+  }
+
+  /// Payment Done from the Select Events dialog: settles every selected
+  /// event at once, moving them to History.
+  Future<void> _markSelectedPaid(List<EventBooking> events) async {
+    if (events.isEmpty) return;
+    try {
+      await _dataService.markBookingsPaid(events.map((e) => e.id));
+      if (!mounted) return;
+      final total = events.fold<double>(0, (sum, e) => sum + e.amount + e.tips);
+      _showCenteredToast(
+        context,
+        'Payment done — moved to History',
+        subtitle:
+            '${events.length} ${events.length == 1 ? 'event' : 'events'} · ${formatCurrency(total)}',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not mark as paid: $e')));
+      }
+    }
   }
 
   String _buildSummary(String name, List<EventBooking> events) {

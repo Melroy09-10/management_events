@@ -18,6 +18,10 @@ class BookingSlotCheck {
 /// Cloud Firestore. Every collection is nested under the signed-in user's
 /// own `users/{uid}` document, so each Firebase account has completely
 /// separate data — enforced both here and by Firestore security rules.
+/// Sort order used for every event list in the app: newest date at the
+/// top, oldest at the bottom.
+int newestFirst(EventBooking a, EventBooking b) => b.date.compareTo(a.date);
+
 class DataService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -406,19 +410,21 @@ class DataService {
         .where('date', isLessThan: Timestamp.fromDate(end))
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => EventBooking.fromJson(d.id, d.data()))
-              .where(
-                (b) =>
-                    b.status == BookingStatus.upcoming &&
-                    (b.requiredMembers > 0) == staffing,
-              )
-              .toList(),
+          (snap) =>
+              snap.docs
+                  .map((d) => EventBooking.fromJson(d.id, d.data()))
+                  .where(
+                    (b) =>
+                        b.status == BookingStatus.upcoming &&
+                        (b.requiredMembers > 0) == staffing,
+                  )
+                  .toList()
+                ..sort(newestFirst),
         );
   }
 
   /// All events (any date) that haven't been marked Done yet, for the
-  /// Pending Events screen. Sorted client-side to avoid needing a composite
+  /// Pending Events screen, newest first. Sorted client-side to avoid needing a composite
   /// index for an equality (status) + orderBy (date) query.
   Stream<List<EventBooking>> pendingEvents() {
     return _eventBookingsCollection
@@ -428,7 +434,7 @@ class DataService {
           final events = snap.docs
               .map((d) => EventBooking.fromJson(d.id, d.data()))
               .toList();
-          events.sort((a, b) => a.date.compareTo(b.date));
+          events.sort(newestFirst);
           return events;
         });
   }
@@ -450,7 +456,7 @@ class DataService {
   }
 
   /// Events marked Done and awaiting payment, for the Pending Payments
-  /// screen.
+  /// screen, newest first.
   Stream<List<EventBooking>> pendingPayments() {
     return _eventBookingsCollection
         .where('status', isEqualTo: BookingStatus.pendingPayment.storageValue)
@@ -459,13 +465,13 @@ class DataService {
           final events = snap.docs
               .map((d) => EventBooking.fromJson(d.id, d.data()))
               .toList();
-          events.sort((a, b) => a.date.compareTo(b.date));
+          events.sort(newestFirst);
           return events;
         });
   }
 
-  /// Events whose payment has been settled, for the History screen. Most
-  /// recent first.
+  /// Events whose payment has been settled, for the History screen, newest
+  /// first.
   Stream<List<EventBooking>> history() {
     return _eventBookingsCollection
         .where('status', isEqualTo: BookingStatus.paid.storageValue)
@@ -474,7 +480,7 @@ class DataService {
           final events = snap.docs
               .map((d) => EventBooking.fromJson(d.id, d.data()))
               .toList();
-          events.sort((a, b) => b.date.compareTo(a.date));
+          events.sort(newestFirst);
           return events;
         });
   }

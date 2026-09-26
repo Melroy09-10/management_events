@@ -205,67 +205,6 @@ class PaymentAmountBox extends StatelessWidget {
   }
 }
 
-/// Rounded segmented control: selected segment is navy, the rest light.
-class PaymentSegmentedControl<T> extends StatelessWidget {
-  final List<(T, String)> segments;
-  final T selected;
-  final ValueChanged<T> onChanged;
-
-  const PaymentSegmentedControl({
-    super.key,
-    required this.segments,
-    required this.selected,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 44,
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: PayColors.card,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: PayColors.border),
-      ),
-      child: Row(
-        children: [
-          for (final (value, label) in segments)
-            Expanded(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => onChanged(value),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeOut,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: value == selected
-                        ? PayColors.navy
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: value == selected
-                          ? Colors.white
-                          : PayColors.textSecondary,
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
 /// Small square icon button used in the page header (Search, Calendar).
 class PaymentHeaderButton extends StatelessWidget {
   final IconData icon;
@@ -449,123 +388,101 @@ class PaymentSummaryCard extends StatelessWidget {
   }
 }
 
-/// A person's group header: initial avatar, name, pending count, a Copy
-/// button and an expand/collapse chevron (the whole row also toggles).
+/// A person's group header: initial avatar, name, pending count and a Copy
+/// button.
 class PaymentPersonHeader extends StatelessWidget {
   final String name;
   final int count;
-  final bool expanded;
-  final VoidCallback onToggle;
   final VoidCallback onCopy;
 
   const PaymentPersonHeader({
     super.key,
     required this.name,
     required this.count,
-    required this.expanded,
-    required this.onToggle,
     required this.onCopy,
   });
 
   @override
   Widget build(BuildContext context) {
     final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
-    final radius = BorderRadius.circular(PayColors.radius);
-    return Material(
-      color: PayColors.card,
-      shape: RoundedRectangleBorder(
-        borderRadius: radius,
-        side: const BorderSide(color: PayColors.border),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: PayColors.card,
+        borderRadius: BorderRadius.circular(PayColors.radius),
+        border: Border.all(color: PayColors.border),
       ),
-      child: InkWell(
-        borderRadius: radius,
-        onTap: onToggle,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 21,
-                backgroundColor: PayColors.goldLight,
-                child: Text(
-                  initial,
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 21,
+            backgroundColor: PayColors.goldLight,
+            child: Text(
+              initial,
+              style: const TextStyle(
+                color: PayColors.navy,
+                fontWeight: FontWeight.w800,
+                fontSize: 17,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: PayColors.navy,
+                    color: PayColors.text,
                     fontWeight: FontWeight.w800,
-                    fontSize: 17,
+                    fontSize: 16.5,
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 1),
+                Text(
+                  '$count pending payment${count == 1 ? '' : 's'}',
+                  style: const TextStyle(
+                    color: PayColors.textSecondary,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Material(
+            color: PayColors.navy,
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: onCopy,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: PayColors.text,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16.5,
-                      ),
+                    Icon(
+                      Icons.copy_all_rounded,
+                      size: 16,
+                      color: PayColors.goldBright,
                     ),
-                    const SizedBox(height: 1),
+                    SizedBox(width: 5),
                     Text(
-                      '$count pending payment${count == 1 ? '' : 's'}',
-                      style: const TextStyle(
-                        color: PayColors.textSecondary,
-                        fontSize: 12.5,
+                      'Copy',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
                       ),
                     ),
                   ],
                 ),
               ),
-              Material(
-                color: PayColors.navy,
-                borderRadius: BorderRadius.circular(10),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(10),
-                  onTap: onCopy,
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.copy_all_rounded,
-                          size: 16,
-                          color: PayColors.goldBright,
-                        ),
-                        SizedBox(width: 5),
-                        Text(
-                          'Copy',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              AnimatedRotation(
-                turns: expanded ? 0.5 : 0,
-                duration: const Duration(milliseconds: 200),
-                child: const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Icon(
-                    Icons.keyboard_arrow_down_rounded,
-                    color: PayColors.textSecondary,
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -1037,10 +954,19 @@ class PaymentCancelButton extends StatelessWidget {
 
 /// Result of the Select Events dialog: events to copy (and mark copied),
 /// and previously-copied events the user unticked (to unmark instead).
+///
+/// With [markPaid] set, the user pressed Payment Done instead: [toCopy]
+/// holds the selected events to mark as paid (moved to History), and
+/// nothing is copied.
 class EventSelectionResult {
   final List<EventBooking> toCopy;
   final List<EventBooking> toUnmark;
-  const EventSelectionResult({required this.toCopy, required this.toUnmark});
+  final bool markPaid;
+  const EventSelectionResult({
+    required this.toCopy,
+    required this.toUnmark,
+    this.markPaid = false,
+  });
 }
 
 /// Custom Select Events modal. Events already marked copied start ticked;
@@ -1083,6 +1009,43 @@ class _SelectEventsDialogState extends State<_SelectEventsDialog> {
         _selectedIds.addAll(widget.events.map((e) => e.id));
       }
     });
+  }
+
+  /// Asks once, then closes the dialog asking the screen to mark
+  /// [selected] as paid (moving them to History).
+  Future<void> _confirmPaymentDone(List<EventBooking> selected) async {
+    final count = selected.length;
+    final total = selected.fold<double>(0, (sum, e) => sum + e.amount + e.tips);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Mark as paid?'),
+        content: Text(
+          '$count ${count == 1 ? 'event' : 'events'} '
+          '(${formatCurrency(total)}) will be marked as paid and moved to '
+          'History.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: PayColors.green),
+            child: const Text('Payment Done'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    Navigator.of(context).pop(
+      EventSelectionResult(
+        toCopy: selected,
+        toUnmark: const [],
+        markPaid: true,
+      ),
+    );
   }
 
   @override
@@ -1134,7 +1097,7 @@ class _SelectEventsDialogState extends State<_SelectEventsDialog> {
                         ),
                         SizedBox(height: 3),
                         Text(
-                          'Choose the events you want to copy',
+                          'Choose events to copy or mark as paid',
                           style: TextStyle(
                             color: PayColors.textSecondary,
                             fontSize: 13,
@@ -1225,7 +1188,36 @@ class _SelectEventsDialogState extends State<_SelectEventsDialog> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: SizedBox(
+                height: 46,
+                child: FilledButton.icon(
+                  onPressed: selected.isEmpty
+                      ? null
+                      : () => _confirmPaymentDone(selected),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: PayColors.green,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: PayColors.green.withValues(
+                      alpha: 0.25,
+                    ),
+                    disabledForegroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(Icons.check_circle_rounded, size: 19),
+                  label: Text(
+                    selected.isEmpty
+                        ? 'Payment Done'
+                        : 'Payment Done (${selected.length})',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
               child: Row(
                 children: [
                   Expanded(
