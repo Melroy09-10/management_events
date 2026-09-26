@@ -6,11 +6,12 @@ import 'package:provider/provider.dart';
 
 import '../models/event_booking.dart';
 import '../services/data_service.dart';
-import '../theme/app_theme.dart';
 import '../utils/currency.dart';
-import '../widgets/confirm_delete_dialog.dart';
-import '../widgets/payment_chips.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/confirm_delete_dialog.dart';
+import '../widgets/history_widgets.dart' show HistoryEmptyState;
+import '../widgets/payment_chips.dart';
+import '../widgets/pending_payment_widgets.dart';
 
 /// Shows [message] (with an optional [subtitle] line) as a plain, non-
 /// interactive floating toast centered on screen — no buttons, no tap
@@ -82,14 +83,6 @@ void _showCenteredToast(
   });
 }
 
-/// Result of the "Select Events" dialog: events to copy & mark as copied,
-/// and previously-copied events the user unticked (to unmark instead).
-class _EventSelectionResult {
-  final List<EventBooking> toCopy;
-  final List<EventBooking> toUnmark;
-  const _EventSelectionResult({required this.toCopy, required this.toUnmark});
-}
-
 enum _CopyFilter { all, copied, notCopied }
 
 extension on _CopyFilter {
@@ -119,6 +112,16 @@ class PendingPaymentsScreen extends StatefulWidget {
 class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
   _CopyFilter _filter = _CopyFilter.all;
 
+  // Search (event / person / location / type) and single-date filter —
+  // both applied on the client to the already-loaded list.
+  bool _searching = false;
+  final _searchController = TextEditingController();
+  String _query = '';
+  DateTime? _dateFilter;
+
+  /// Person groups the user has collapsed.
+  final Set<String> _collapsed = {};
+
   // Created once and reused across rebuilds. Calling dataService
   // .pendingPayments() again inside build() would hand StreamBuilder a
   // brand-new Firestore listener on every setState (e.g. right after a
@@ -132,40 +135,112 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
     _pendingPaymentsStream = context.read<DataService>().pendingPayments();
   }
 
-  Future<void> _markCopied(Iterable<String> ids, DataService dataService) {
-    return dataService.updateEventsCopied(ids, true);
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
-  Future<void> _unmarkCopied(Iterable<String> ids, DataService dataService) {
-    return dataService.updateEventsCopied(ids, false);
+  DataService get _dataService => context.read<DataService>();
+
+  Future<void> _markCopied(Iterable<String> ids) {
+    return _dataService.updateEventsCopied(ids, true);
+  }
+
+  Future<void> _unmarkCopied(Iterable<String> ids) {
+    return _dataService.updateEventsCopied(ids, false);
+  }
+
+  bool _matchesSearch(EventBooking e) {
+    if (_query.isEmpty) return true;
+    final q = _query.toLowerCase();
+    return e.eventName.toLowerCase().contains(q) ||
+        e.personName.toLowerCase().contains(q) ||
+        e.location.toLowerCase().contains(q) ||
+        e.eventType.toLowerCase().contains(q);
+  }
+
+  bool _matchesDate(EventBooking e) =>
+      _dateFilter == null || DateUtils.isSameDay(e.date, _dateFilter);
+
+  void _toggleSearch() {
+    setState(() {
+      _searching = !_searching;
+      if (!_searching) {
+        _searchController.clear();
+        _query = '';
+      }
+    });
+  }
+
+  Future<void> _pickDate(List<EventBooking> events) async {
+    final now = DateTime.now();
+    final dates = events.map((e) => e.date).toList()..sort();
+    final first = dates.isEmpty ? DateTime(now.year - 1) : dates.first;
+    final last = dates.isEmpty ? now : dates.last;
+    final initial = _dateFilter ?? (last.isBefore(now) ? last : now);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial.isBefore(first)
+          ? first
+          : (initial.isAfter(last) ? last : initial),
+      firstDate: DateTime(first.year, first.month, first.day),
+      lastDate: DateTime(last.year, last.month, last.day),
+      helpText: 'Show pending payments for',
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _dateFilter = DateUtils.dateOnly(picked));
+  }
+
+  Scaffold _scaffold({required Widget body, List<EventBooking>? events}) {
+    return Scaffold(
+      drawer: const AppDrawer(),
+      backgroundColor: PayColors.background,
+      appBar: AppBar(
+        title: const Text('Pending Payments'),
+        actions: events == null
+            ? null
+            : [
+                PaymentHeaderButton(
+                  icon: _searching ? Icons.close_rounded : Icons.search_rounded,
+                  tooltip: _searching ? 'Close search' : 'Search',
+                  active: _searching,
+                  onPressed: _toggleSearch,
+                ),
+                const SizedBox(width: 8),
+                PaymentHeaderButton(
+                  icon: Icons.calendar_month_rounded,
+                  tooltip: 'Filter by date',
+                  active: _dateFilter != null,
+                  onPressed: () => _pickDate(events),
+                ),
+                const SizedBox(width: 12),
+              ],
+      ),
+      body: body,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final dataService = context.read<DataService>();
-
     return StreamBuilder<List<EventBooking>>(
       stream: _pendingPaymentsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Scaffold(
-            drawer: const AppDrawer(),
-            appBar: AppBar(title: const Text('Pending Payments')),
-            body: const Center(child: CircularProgressIndicator()),
+          return _scaffold(
+            body: const Center(
+              child: CircularProgressIndicator(color: PayColors.navy),
+            ),
           );
         }
         if (snapshot.hasError) {
-          return Scaffold(
-            drawer: const AppDrawer(),
-            appBar: AppBar(title: const Text('Pending Payments')),
+          return _scaffold(
             body: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  'Could not load pending payments:\n${snapshot.error}',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: AppColors.danger),
-                ),
+              child: HistoryEmptyState(
+                icon: Icons.error_outline_rounded,
+                accent: PayColors.danger,
+                title: 'Could not load pending payments',
+                message: '${snapshot.error}',
               ),
             ),
           );
@@ -173,35 +248,24 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
 
         final events = snapshot.data ?? const <EventBooking>[];
         if (events.isEmpty) {
-          return Scaffold(
-            drawer: const AppDrawer(),
-            appBar: AppBar(title: const Text('Pending Payments')),
-            body: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.payments_outlined,
-                      size: 56,
-                      color: AppColors.textSecondaryLight,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'No pending payments',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
+          return _scaffold(
+            body: const Center(
+              child: HistoryEmptyState(
+                icon: Icons.payments_outlined,
+                title: 'No pending payments',
+                message:
+                    'Events you mark as Done will wait here until '
+                    'they are paid.',
               ),
             ),
           );
         }
 
-        final filtered = events.where(_filter.matches).toList();
+        final filtered = events
+            .where(
+              (e) => _filter.matches(e) && _matchesSearch(e) && _matchesDate(e),
+            )
+            .toList();
         final grandTotal = filtered.fold<double>(
           0,
           (sum, e) => sum + e.amount + e.tips,
@@ -215,316 +279,165 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
               ..sort((a, b) => a.date.compareTo(b.date)),
         };
 
-        return Scaffold(
-          drawer: const AppDrawer(),
-          appBar: AppBar(title: const Text('Pending Payments')),
-          body: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: _FilterBar(
-                  filter: _filter,
+        return _scaffold(
+          events: events,
+          body: SafeArea(
+            top: false,
+            child: ListView(
+              // Every item below carries a stable key (person name / event
+              // id) rather than relying on list position, so Flutter can't
+              // confuse one card's element/render tree for another's when
+              // the list reshuffles right after a copy or a Done action.
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+              children: [
+                if (_searching)
+                  Padding(
+                    key: const ValueKey('search'),
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: TextField(
+                      controller: _searchController,
+                      autofocus: true,
+                      textInputAction: TextInputAction.search,
+                      decoration: InputDecoration(
+                        hintText: 'Search event, person or place',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 12,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: PayColors.border),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: PayColors.border),
+                        ),
+                      ),
+                      onChanged: (value) =>
+                          setState(() => _query = value.trim()),
+                    ),
+                  ),
+                PaymentSegmentedControl<_CopyFilter>(
+                  key: const ValueKey('filter'),
+                  segments: [for (final f in _CopyFilter.values) (f, f.label)],
+                  selected: _filter,
                   onChanged: (f) => setState(() => _filter = f),
                 ),
-              ),
-              Expanded(
-                child: filtered.isEmpty
-                    ? Center(
-                        child: Text(
-                          'No ${_filter.label.toLowerCase()} events',
-                          style: const TextStyle(
-                            color: AppColors.textSecondaryLight,
-                            fontWeight: FontWeight.w600,
-                          ),
+                if (_dateFilter != null)
+                  Padding(
+                    key: const ValueKey('date-chip'),
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: InputChip(
+                        avatar: const Icon(
+                          Icons.calendar_today_rounded,
+                          size: 16,
+                          color: PayColors.navy,
                         ),
-                      )
-                    : ListView(
-                        // Every item below carries a stable key (person name
-                        // / event id) rather than relying on list position,
-                        // so Flutter can't confuse one card's element/render
-                        // tree for another's when the list reshuffles right
-                        // after a copy or a Done action.
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                        children: [
-                          _GrandTotalCard(
-                            key: const ValueKey('grand-total'),
-                            total: grandTotal,
-                            eventCount: filtered.length,
-                            personCount: personNames.length,
-                          ),
-                          for (final name in personNames)
-                            Padding(
-                              key: ValueKey('person-group-$name'),
-                              padding: const EdgeInsets.only(top: 20),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  _PersonHeader(
-                                    name: name,
-                                    events: grouped[name]!,
-                                    onCopied: (ids) =>
-                                        _markCopied(ids, dataService),
-                                    onUndoCopied: (ids) =>
-                                        _unmarkCopied(ids, dataService),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  for (final event in grouped[name]!)
-                                    Padding(
-                                      key: ValueKey('event-${event.id}'),
-                                      padding: const EdgeInsets.only(
-                                        bottom: 12,
-                                      ),
-                                      child: _PendingPaymentCard(
-                                        event: event,
-                                        dataService: dataService,
-                                        copied: event.copied,
-                                        onUndoCopied: () => _unmarkCopied([
-                                          event.id,
-                                        ], dataService),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                        ],
+                        label: Text(formatEventDate(_dateFilter!)),
+                        labelStyle: const TextStyle(
+                          color: PayColors.navy,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        backgroundColor: PayColors.card,
+                        side: const BorderSide(color: PayColors.border),
+                        onDeleted: () => setState(() => _dateFilter = null),
                       ),
-              ),
-            ],
+                    ),
+                  ),
+                const SizedBox(key: ValueKey('gap-summary'), height: 14),
+                PaymentSummaryCard(
+                  key: const ValueKey('grand-total'),
+                  total: grandTotal,
+                  eventCount: filtered.length,
+                  personCount: personNames.length,
+                ),
+                if (filtered.isEmpty)
+                  Padding(
+                    key: const ValueKey('no-match'),
+                    padding: const EdgeInsets.only(top: 40),
+                    child: Text(
+                      _query.isNotEmpty || _dateFilter != null
+                          ? 'No pending payments match your search.'
+                          : 'No ${_filter.label.toLowerCase()} events',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: PayColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                for (final name in personNames)
+                  Padding(
+                    key: ValueKey('person-group-$name'),
+                    padding: const EdgeInsets.only(top: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        PaymentPersonHeader(
+                          name: name,
+                          count: grouped[name]!.length,
+                          expanded: !_collapsed.contains(name),
+                          onToggle: () => setState(() {
+                            if (!_collapsed.remove(name)) _collapsed.add(name);
+                          }),
+                          onCopy: () => _copySummary(name, grouped[name]!),
+                        ),
+                        AnimatedSize(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeInOut,
+                          alignment: Alignment.topCenter,
+                          child: _collapsed.contains(name)
+                              ? const SizedBox(width: double.infinity)
+                              : Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    for (final event in grouped[name]!)
+                                      Padding(
+                                        key: ValueKey('event-${event.id}'),
+                                        padding: const EdgeInsets.only(top: 10),
+                                        child: PaymentEventCard(
+                                          event: event,
+                                          onDone: () => _markPaid(event),
+                                          onAddTip: () => _editTips(event),
+                                          onDelete: () => _delete(event),
+                                          onEditAmount: () =>
+                                              _editAmount(event),
+                                          onEditTips: () => _editTips(event),
+                                          onUndoCopied: () =>
+                                              _undoCopied(event),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
           ),
         );
       },
     );
   }
-}
 
-class _FilterBar extends StatelessWidget {
-  final _CopyFilter filter;
-  final ValueChanged<_CopyFilter> onChanged;
-  const _FilterBar({required this.filter, required this.onChanged});
+  // --- Copy ---
 
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: SegmentedButton<_CopyFilter>(
-        showSelectedIcon: false,
-        segments: [
-          for (final f in _CopyFilter.values)
-            ButtonSegment(value: f, label: Text(f.label)),
-        ],
-        selected: {filter},
-        onSelectionChanged: (selection) => onChanged(selection.first),
-      ),
-    );
-  }
-}
-
-class _GrandTotalCard extends StatelessWidget {
-  final double total;
-  final int eventCount;
-  final int personCount;
-  const _GrandTotalCard({
-    super.key,
-    required this.total,
-    required this.eventCount,
-    required this.personCount,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [paymentOrange, paymentOrangeDark],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: [
-          BoxShadow(
-            color: paymentOrangeDark.withValues(alpha: 0.35),
-            blurRadius: 22,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Grand Total Pending',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.85),
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  formatCurrency(total),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 30,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.22),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  '$eventCount events',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                '$personCount ${personCount == 1 ? 'person' : 'persons'}',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.85),
-                  fontSize: 13,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PersonHeader extends StatelessWidget {
-  final String name;
-  final List<EventBooking> events;
-  final Future<void> Function(Iterable<String> ids) onCopied;
-  final Future<void> Function(Iterable<String> ids) onUndoCopied;
-  const _PersonHeader({
-    required this.name,
-    required this.events,
-    required this.onCopied,
-    required this.onUndoCopied,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 26,
-            backgroundColor: paymentOrange.withValues(alpha: 0.16),
-            child: Text(
-              initial,
-              style: TextStyle(
-                color: paymentOrangeDark,
-                fontWeight: FontWeight.w800,
-                fontSize: 20,
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                    color: AppColors.textPrimaryLight,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${events.length} pending payment${events.length == 1 ? '' : 's'}',
-                  style: const TextStyle(
-                    color: AppColors.textSecondaryLight,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.copy_all_outlined),
-            color: paymentOrange,
-            onPressed: () => _copySummary(context, name, events),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _copySummary(
-    BuildContext context,
-    String name,
-    List<EventBooking> events,
-  ) async {
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Copy Payments'),
-        content: const Text(
-          'Copy every pending payment for this person, or pick specific events?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop('select'),
-            child: const Text('Select Events'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop('all'),
-            child: const Text('All Events'),
-          ),
-        ],
-      ),
-    );
-    if (choice == null || !context.mounted) return;
+  Future<void> _copySummary(String name, List<EventBooking> events) async {
+    final choice = await showCopyPaymentsDialog(context);
+    if (choice == null || !mounted) return;
 
     List<EventBooking> chosen;
     List<EventBooking> toUnmark = const [];
-    if (choice == 'all') {
+    if (choice == CopyChoice.all) {
       chosen = events;
     } else {
-      final picked = await _pickEvents(context, events);
-      if (picked == null || !context.mounted) return;
+      final picked = await showSelectEventsDialog(context, events);
+      if (picked == null || !mounted) return;
       if (picked.toCopy.isEmpty && picked.toUnmark.isEmpty) return;
       chosen = picked.toCopy;
       toUnmark = picked.toUnmark;
@@ -532,8 +445,8 @@ class _PersonHeader extends StatelessWidget {
 
     if (toUnmark.isNotEmpty) {
       unawaited(
-        onUndoCopied(toUnmark.map((e) => e.id)).catchError((Object e) {
-          if (context.mounted) {
+        _unmarkCopied(toUnmark.map((e) => e.id)).catchError((Object e) {
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Could not update copied status: $e')),
             );
@@ -544,7 +457,7 @@ class _PersonHeader extends StatelessWidget {
 
     if (chosen.isEmpty) {
       // The user only unticked previously-copied events — nothing to copy.
-      if (context.mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -559,7 +472,7 @@ class _PersonHeader extends StatelessWidget {
     chosen = [...chosen]..sort((a, b) => a.date.compareTo(b.date));
 
     await Clipboard.setData(ClipboardData(text: _buildSummary(name, chosen)));
-    if (!context.mounted) return;
+    if (!mounted) return;
     final copiedIds = chosen.map((e) => e.id).toList();
     final total = chosen.fold<double>(0, (sum, e) => sum + e.amount + e.tips);
 
@@ -575,93 +488,13 @@ class _PersonHeader extends StatelessWidget {
     );
 
     unawaited(
-      onCopied(copiedIds).catchError((Object e) {
-        if (context.mounted) {
+      _markCopied(copiedIds).catchError((Object e) {
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Could not save copied status: $e')),
           );
         }
       }),
-    );
-  }
-
-  Future<_EventSelectionResult?> _pickEvents(
-    BuildContext context,
-    List<EventBooking> events,
-  ) {
-    // Events already marked copied start pre-ticked, so the dialog reflects
-    // current state; unticking one and pressing Copy unmarks it instead.
-    final selected = <EventBooking>{...events.where((e) => e.copied)};
-    return showDialog<_EventSelectionResult>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) {
-          final toUnmark = events
-              .where((e) => e.copied && !selected.contains(e))
-              .toList();
-          final canConfirm = selected.isNotEmpty || toUnmark.isNotEmpty;
-
-          return AlertDialog(
-            title: const Text('Select Events'),
-            content: SizedBox(
-              width: double.maxFinite,
-              // A bounded height (rather than shrinkWrap, which breaks
-              // layout when this dialog animates closed) keeps the list
-              // scrollable without crashing on dismiss.
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.5,
-                ),
-                child: ListView(
-                  shrinkWrap: true,
-                  children: events.map((e) {
-                    return CheckboxListTile(
-                      value: selected.contains(e),
-                      controlAffinity: ListTileControlAffinity.leading,
-                      secondary: e.copied
-                          ? const Icon(
-                              Icons.check_circle_rounded,
-                              color: doneGreen,
-                            )
-                          : null,
-                      title: Text(e.eventName),
-                      subtitle: Text(
-                        '${formatEventDate(e.date)} · ${e.shift.label}',
-                      ),
-                      onChanged: (checked) {
-                        setState(() {
-                          if (checked == true) {
-                            selected.add(e);
-                          } else {
-                            selected.remove(e);
-                          }
-                        });
-                      },
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: canConfirm
-                    ? () => Navigator.of(dialogContext).pop(
-                        _EventSelectionResult(
-                          toCopy: selected.toList(),
-                          toUnmark: toUnmark,
-                        ),
-                      )
-                    : null,
-                child: const Text('Copy'),
-              ),
-            ],
-          );
-        },
-      ),
     );
   }
 
@@ -684,27 +517,16 @@ class _PersonHeader extends StatelessWidget {
     buffer.writeln('💵 Grand Total : ${formatCurrency(grandTotal)}');
     return buffer.toString().trimRight();
   }
-}
 
-class _PendingPaymentCard extends StatelessWidget {
-  final EventBooking event;
-  final DataService dataService;
-  final bool copied;
-  final Future<void> Function()? onUndoCopied;
-  const _PendingPaymentCard({
-    required this.event,
-    required this.dataService,
-    this.copied = false,
-    this.onUndoCopied,
-  });
+  // --- Per-event actions ---
 
-  void _undo(BuildContext context) {
+  void _undoCopied(EventBooking event) {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Marked as not copied')));
     unawaited(
-      onUndoCopied?.call().catchError((Object e) {
-        if (context.mounted) {
+      _unmarkCopied([event.id]).catchError((Object e) {
+        if (mounted) {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(SnackBar(content: Text('Could not update: $e')));
@@ -713,241 +535,38 @@ class _PendingPaymentCard extends StatelessWidget {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: copied ? doneGreen.withValues(alpha: 0.16) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: copied ? doneGreen : Colors.black12.withValues(alpha: 0.05),
-          width: copied ? 1.8 : 1,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  event.eventName,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 17,
-                    color: AppColors.textPrimaryLight,
-                  ),
-                ),
-              ),
-              if (copied) ...[
-                Tooltip(
-                  message: 'Tap to undo',
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(20),
-                    onTap: () => _undo(context),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: doneGreen,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.check_circle_rounded,
-                            size: 13,
-                            color: Colors.white,
-                          ),
-                          SizedBox(width: 4),
-                          Text(
-                            'Copied',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 11.5,
-                            ),
-                          ),
-                          SizedBox(width: 3),
-                          Icon(
-                            Icons.undo_rounded,
-                            size: 12,
-                            color: Colors.white,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
-              ShiftBadge(shift: event.shift),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Icon(
-                Icons.calendar_today_outlined,
-                size: 15,
-                color: AppColors.textSecondaryLight,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                formatEventDate(event.date),
-                style: const TextStyle(
-                  color: AppColors.textSecondaryLight,
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(width: 16),
-              const Icon(
-                Icons.location_on_outlined,
-                size: 15,
-                color: AppColors.textSecondaryLight,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  event.location,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textSecondaryLight,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: EditableAmountChip(
-                  label: 'Amount',
-                  value: event.amount,
-                  background: amountChipBg,
-                  valueColor: AppColors.textPrimaryLight,
-                  onDoubleTap: () => _editAmount(context),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: EditableAmountChip(
-                  label: 'Tips',
-                  value: event.tips,
-                  background: tipsChipBg,
-                  valueColor: tipsChipText,
-                  onDoubleTap: () => _editTips(context),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(child: TotalChip(value: event.amount + event.tips)),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: ElevatedButton.icon(
-                    onPressed: () => _markPaid(context),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: doneGreen,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    icon: const Icon(Icons.check_rounded, color: Colors.white),
-                    label: const Text(
-                      'Done',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              SizedBox(
-                width: 52,
-                height: 48,
-                child: ElevatedButton(
-                  onPressed: () => _editTips(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: paymentOrange,
-                    elevation: 0,
-                    padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  child: const Icon(Icons.add_rounded, color: Colors.white),
-                ),
-              ),
-              const SizedBox(width: 10),
-              SizedBox(
-                width: 52,
-                height: 48,
-                child: ElevatedButton(
-                  onPressed: () => _delete(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: deleteChipBg,
-                    elevation: 0,
-                    padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  child: const Icon(Icons.close_rounded, color: deleteChipIcon),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _editAmount(BuildContext context) async {
+  Future<void> _editAmount(EventBooking event) async {
     final value = await promptForAmount(
       context,
       title: 'Amount',
       initial: event.amount,
     );
-    if (value != null) await dataService.updateEventAmount(event.id, value);
+    if (value != null) await _dataService.updateEventAmount(event.id, value);
   }
 
-  Future<void> _editTips(BuildContext context) async {
+  Future<void> _editTips(EventBooking event) async {
     final value = await promptForAmount(
       context,
       title: 'Tips',
       initial: event.tips,
     );
-    if (value != null) await dataService.updateEventTips(event.id, value);
+    if (value != null) await _dataService.updateEventTips(event.id, value);
   }
 
-  Future<void> _markPaid(BuildContext context) async {
-    await dataService.markBookingPaid(event.id);
-    if (context.mounted) {
+  Future<void> _markPaid(EventBooking event) async {
+    await _dataService.markBookingPaid(event.id);
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Marked as paid — moved to History')),
       );
     }
   }
 
-  Future<void> _delete(BuildContext context) async {
+  Future<void> _delete(EventBooking event) async {
     final confirmed = await confirmDelete(context);
-    if (!confirmed || !context.mounted) return;
-    await dataService.deleteEventBooking(event.id);
-    if (context.mounted) {
+    if (!confirmed || !mounted) return;
+    await _dataService.deleteEventBooking(event.id);
+    if (mounted) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Event deleted')));
