@@ -584,12 +584,17 @@ class DashMemberRow extends StatelessWidget {
   final bool present;
   final ValueChanged<bool> onPresentChanged;
   final VoidCallback onDelete;
+
+  /// Long-press anywhere on the row (outside the checkbox / delete button)
+  /// to call this member.
+  final VoidCallback? onCall;
   const DashMemberRow({
     super.key,
     required this.name,
     required this.present,
     required this.onPresentChanged,
     required this.onDelete,
+    this.onCall,
   });
 
   @override
@@ -601,7 +606,7 @@ class DashMemberRow extends StatelessWidget {
         : _avatarPastels[trimmed.codeUnitAt(0) % _avatarPastels.length];
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Container(
+    final row = Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.fromLTRB(4, 6, 10, 6),
       decoration: BoxDecoration(
@@ -665,6 +670,15 @@ class DashMemberRow extends StatelessWidget {
         ],
       ),
     );
+    if (onCall == null) return row;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPress: () {
+        HapticFeedback.mediumImpact();
+        onCall!();
+      },
+      child: row,
+    );
   }
 }
 
@@ -719,12 +733,14 @@ class DashStaffingEventCard extends StatelessWidget {
   final VoidCallback onEdit;
   final void Function(AssignedMember member, bool present) onPresentChanged;
   final ValueChanged<AssignedMember> onRemove;
+  final ValueChanged<AssignedMember>? onCall;
   const DashStaffingEventCard({
     super.key,
     required this.event,
     required this.onEdit,
     required this.onPresentChanged,
     required this.onRemove,
+    this.onCall,
   });
 
   @override
@@ -819,6 +835,7 @@ class DashStaffingEventCard extends StatelessWidget {
                       onPresentChanged: (value) =>
                           onPresentChanged(member, value),
                       onDelete: () => onRemove(member),
+                      onCall: onCall == null ? null : () => onCall!(member),
                     ),
               ],
             ),

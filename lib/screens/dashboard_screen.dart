@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/app_user.dart';
 import '../models/event_booking.dart';
@@ -312,6 +313,33 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
     }
   }
 
+  /// Opens the phone dialer for [member]. Assigned members only store an id
+  /// and name, so the number is looked up from their login account or, for
+  /// a roster-only member, the Admin's Contact list.
+  Future<void> _callMember(AssignedMember member) async {
+    final auth = context.read<AuthService>();
+    final dataService = context.read<DataService>();
+    String? phone;
+    try {
+      final accounts = await auth.members().first;
+      phone = accounts.where((u) => u.id == member.id).firstOrNull?.phone;
+      if (phone == null || phone.trim().isEmpty) {
+        final roster = await dataService.membersOnce();
+        phone = roster.where((m) => m.id == member.id).firstOrNull?.phone;
+      }
+    } catch (e) {
+      _showMessage('Could not look up ${member.name}\'s number: $e');
+      return;
+    }
+
+    if (phone == null || phone.trim().isEmpty) {
+      _showMessage('No phone number saved for ${member.name}');
+      return;
+    }
+    final launched = await launchUrl(Uri(scheme: 'tel', path: phone.trim()));
+    if (!launched) _showMessage('Could not open the dialer');
+  }
+
   Future<void> _removeMember(EventBooking event, AssignedMember member) async {
     final confirmed = await confirmDelete(context);
     if (!confirmed || !mounted) return;
@@ -482,6 +510,7 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
                       onPresentChanged: (member, present) =>
                           _setPresent(event, member, present),
                       onRemove: (member) => _removeMember(event, member),
+                      onCall: _callMember,
                     );
                   },
                 ),
