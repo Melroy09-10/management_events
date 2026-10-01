@@ -329,6 +329,17 @@ class DataService {
     return _eventBookingsCollection.add(booking.toJson());
   }
 
+  /// Live view of one booking; emits null if it's deleted.
+  Stream<EventBooking?> eventBooking(String id) {
+    return _eventBookingsCollection
+        .doc(id)
+        .snapshots()
+        .map(
+          (doc) =>
+              doc.exists ? EventBooking.fromJson(doc.id, doc.data()!) : null,
+        );
+  }
+
   Future<void> updateEventBooking(String id, EventBooking booking) {
     return _eventBookingsCollection.doc(id).update(booking.toJson());
   }
@@ -456,14 +467,27 @@ class DataService {
   }
 
   /// Events marked Done and awaiting payment, for the Pending Payments
-  /// screen, newest first.
+  /// screen, newest first — plus still-upcoming events whose commission
+  /// hasn't been received, so My Commission shows there from the moment
+  /// the event is created.
   Stream<List<EventBooking>> pendingPayments() {
     return _eventBookingsCollection
-        .where('status', isEqualTo: BookingStatus.pendingPayment.storageValue)
+        .where(
+          'status',
+          whereIn: [
+            BookingStatus.pendingPayment.storageValue,
+            BookingStatus.upcoming.storageValue,
+          ],
+        )
         .snapshots()
         .map((snap) {
           final events = snap.docs
               .map((d) => EventBooking.fromJson(d.id, d.data()))
+              .where(
+                (e) =>
+                    e.status == BookingStatus.pendingPayment ||
+                    (e.hasCommission && !e.commissionPaid),
+              )
               .toList();
           events.sort(newestFirst);
           return events;
@@ -472,17 +496,23 @@ class DataService {
 
   /// Events whose payment has been settled, for the History screen, newest
   /// first.
+  ///
+  /// Also includes events whose commission has been received while the
+  /// event itself isn't paid yet — History lists those as commission
+  /// entries, so a commission marked Done shows up here straight away.
   Stream<List<EventBooking>> history() {
-    return _eventBookingsCollection
-        .where('status', isEqualTo: BookingStatus.paid.storageValue)
-        .snapshots()
-        .map((snap) {
-          final events = snap.docs
-              .map((d) => EventBooking.fromJson(d.id, d.data()))
-              .toList();
-          events.sort(newestFirst);
-          return events;
-        });
+    return _eventBookingsCollection.snapshots().map((snap) {
+      final events = snap.docs
+          .map((d) => EventBooking.fromJson(d.id, d.data()))
+          .where(
+            (e) =>
+                e.status == BookingStatus.paid ||
+                (e.hasCommission && e.commissionPaid),
+          )
+          .toList();
+      events.sort(newestFirst);
+      return events;
+    });
   }
 
   /// Marks a booking as Done, moving it from Pending Events to Pending
@@ -495,7 +525,9 @@ class DataService {
 
   /// Moves the user's own events whose date has passed (before today) and
   /// that were never marked Done into Pending Payments automatically, as if
-  /// Done had been tapped. Admin staffing events are left untouched.
+  /// Done had been tapped. Admin staffing events have no Done button, so
+  /// those with a commission move here too once their date has passed (so
+  /// the commission shows up for payment); the rest are left untouched.
   Future<void> moveOverdueEventsToPendingPayments() async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -507,7 +539,9 @@ class DataService {
     var count = 0;
     for (final doc in snapshot.docs) {
       final booking = EventBooking.fromJson(doc.id, doc.data());
-      if (booking.requiredMembers > 0 || !booking.date.isBefore(today)) {
+      final isStaffing = booking.requiredMembers > 0;
+      if ((isStaffing && !booking.hasCommission) ||
+          !booking.date.isBefore(today)) {
         continue;
       }
       batch.update(doc.reference, {
@@ -519,9 +553,23 @@ class DataService {
   }
 
   /// Marks a booking as paid, moving it from Pending Payments to History.
-  Future<void> markBookingPaid(String bookingId) {
+  /// With [settleCommission], the event's commission is marked received in
+  /// the same write, so it isn't left pending once the event is in History.
+  Future<void> markBookingPaid(
+    String bookingId, {
+    bool settleCommission = false,
+  }) {
     return _eventBookingsCollection.doc(bookingId).update({
       'status': BookingStatus.paid.storageValue,
+      if (settleCommission) 'commissionPaid': true,
+    });
+  }
+
+  /// Marks an event's commission as received (or back to pending),
+  /// independently of the event payment.
+  Future<void> setCommissionPaid(String bookingId, bool paid) {
+    return _eventBookingsCollection.doc(bookingId).update({
+      'commissionPaid': paid,
     });
   }
 
@@ -535,11 +583,17 @@ class DataService {
 
   /// Marks many bookings as paid at once, for Pending Payments' "Done All"
   /// bulk action.
-  Future<void> markBookingsPaid(Iterable<String> bookingIds) {
+  /// Bookings listed in [settleCommissionIds] also get their commission
+  /// marked received.
+  Future<void> markBookingsPaid(
+    Iterable<String> bookingIds, {
+    Set<String> settleCommissionIds = const {},
+  }) {
     final batch = _firestore.batch();
     for (final id in bookingIds) {
       batch.update(_eventBookingsCollection.doc(id), {
         'status': BookingStatus.paid.storageValue,
+        if (settleCommissionIds.contains(id)) 'commissionPaid': true,
       });
     }
     return batch.commit();
@@ -553,6 +607,13 @@ class DataService {
   /// Updates just the Tips amount on a booking, editable at any time.
   Future<void> updateEventTips(String bookingId, double tips) {
     return _eventBookingsCollection.doc(bookingId).update({'tips': tips});
+  }
+
+  /// Changes how many members a staffing event needs.
+  Future<void> updateRequiredMembers(String bookingId, int requiredMembers) {
+    return _eventBookingsCollection.doc(bookingId).update({
+      'requiredMembers': requiredMembers,
+    });
   }
 
   /// Updates whether a booking has been copied (Pending Payments' Copied /

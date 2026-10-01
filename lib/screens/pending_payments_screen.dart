@@ -243,10 +243,20 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
         final filtered =
             events.where((e) => _matchesSearch(e) && _matchesDate(e)).toList()
               ..sort(newestFirst);
-        final grandTotal = filtered.fold<double>(
+        // Upcoming events are only listed for their commission; the event
+        // payment itself isn't due yet, so they stay out of the totals.
+        final payable = filtered
+            .where((e) => e.status == BookingStatus.pendingPayment)
+            .toList();
+        final grandTotal = payable.fold<double>(
           0,
           (sum, e) => sum + e.amount + e.tips,
         );
+        // Kept apart from [grandTotal]: commission is the Admin's own
+        // earning, not part of what the caller owes.
+        final commissionPending = filtered
+            .where((e) => e.hasCommission && !e.commissionPaid)
+            .fold<double>(0, (sum, e) => sum + e.totalCommission);
         // Newest events on top: within each person, and the person whose
         // latest event is newest comes first. [filtered] is already
         // newest-first, so a person's first appearance is their latest event.
@@ -325,8 +335,9 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
                 PaymentSummaryCard(
                   key: const ValueKey('grand-total'),
                   total: grandTotal,
-                  eventCount: filtered.length,
-                  personCount: personNames.length,
+                  eventCount: payable.length,
+                  personCount: {for (final e in payable) e.personName}.length,
+                  commissionPending: commissionPending,
                 ),
                 if (filtered.isEmpty)
                   Padding(
@@ -357,15 +368,23 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
                           Padding(
                             key: ValueKey('event-${event.id}'),
                             padding: const EdgeInsets.only(top: 10),
-                            child: PaymentEventCard(
-                              event: event,
-                              onDone: () => _markPaid(event),
-                              onAddTip: () => _editTips(event),
-                              onDelete: () => _delete(event),
-                              onEditAmount: () => _editAmount(event),
-                              onEditTips: () => _editTips(event),
-                              onUndoCopied: () => _undoCopied(event),
-                            ),
+                            child: event.status != BookingStatus.pendingPayment
+                                ? UpcomingCommissionCard(
+                                    event: event,
+                                    onDone: () => _markCommissionPaid(event),
+                                    onUndoCopied: () => _undoCopied(event),
+                                  )
+                                : PaymentEventCard(
+                                    event: event,
+                                    onDone: () => _markPaid(event),
+                                    onAddTip: () => _editTips(event),
+                                    onDelete: () => _delete(event),
+                                    onEditAmount: () => _editAmount(event),
+                                    onEditTips: () => _editTips(event),
+                                    onUndoCopied: () => _undoCopied(event),
+                                    onToggleCommissionPaid: () =>
+                                        _toggleCommissionPaid(event),
+                                  ),
                           ),
                       ],
                     ),
@@ -431,7 +450,7 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
     await Clipboard.setData(ClipboardData(text: _buildSummary(name, chosen)));
     if (!mounted) return;
     final copiedIds = chosen.map((e) => e.id).toList();
-    final total = chosen.fold<double>(0, (sum, e) => sum + e.amount + e.tips);
+    final total = chosen.fold<double>(0, (sum, e) => sum + e.pendingValue);
 
     // Give feedback immediately — the clipboard copy already happened, so
     // the user shouldn't wait on a network write to know it worked. The
@@ -459,10 +478,27 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
   /// event at once, moving them to History.
   Future<void> _markSelectedPaid(List<EventBooking> events) async {
     if (events.isEmpty) return;
+    final commissionOnly = events.where((e) => e.isCommissionOnly).toList();
+    final payable = events.where((e) => !e.isCommissionOnly).toList();
+    final pendingCommission = payable
+        .where((e) => e.hasCommission && !e.commissionPaid)
+        .toList();
+    if (pendingCommission.isNotEmpty &&
+        !await _confirmSettleCommission(pendingCommission)) {
+      return;
+    }
     try {
-      await _dataService.markBookingsPaid(events.map((e) => e.id));
+      await Future.wait([
+        if (payable.isNotEmpty)
+          _dataService.markBookingsPaid(
+            payable.map((e) => e.id),
+            settleCommissionIds: {for (final e in pendingCommission) e.id},
+          ),
+        for (final e in commissionOnly)
+          _dataService.setCommissionPaid(e.id, true),
+      ]);
       if (!mounted) return;
-      final total = events.fold<double>(0, (sum, e) => sum + e.amount + e.tips);
+      final total = events.fold<double>(0, (sum, e) => sum + e.pendingValue);
       _showCenteredToast(
         context,
         'Payment done — moved to History',
@@ -483,14 +519,23 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
     var grandTotal = 0.0;
     for (final e in events) {
       final shiftEmoji = e.shift == Shift.day ? '☀️' : '🌙';
-      final total = e.amount + e.tips;
-      grandTotal += total;
+      grandTotal += e.pendingValue;
       buffer.writeln('🍽️ ${e.eventName}');
       buffer.writeln('📅 ${formatEventDate(e.date)}');
       buffer.writeln('$shiftEmoji ${e.shift.label}');
-      buffer.writeln('💰 Amount : ${formatCurrency(e.amount)}');
-      buffer.writeln('🎁 Tips : ${formatCurrency(e.tips)}');
-      buffer.writeln('🧾 Total : ${formatCurrency(total)}');
+      if (e.isCommissionOnly) {
+        final perHead = e.commissionType == CommissionType.perHead;
+        buffer.writeln(
+          perHead
+              ? '💼 Commission : ${formatCurrency(e.commission)} × ${e.commissionMemberCount} = ${formatCurrency(e.totalCommission)}'
+              : '💼 Commission : ${formatCurrency(e.totalCommission)}',
+        );
+      } else {
+        final total = e.amount + e.tips;
+        buffer.writeln('💰 Amount : ${formatCurrency(e.amount)}');
+        buffer.writeln('🎁 Tips : ${formatCurrency(e.tips)}');
+        buffer.writeln('🧾 Total : ${formatCurrency(total)}');
+      }
       buffer.writeln();
     }
     buffer.writeln('━━━━━━━━━━━━━━━━━━━━');
@@ -533,8 +578,80 @@ class _PendingPaymentsScreenState extends State<PendingPaymentsScreen> {
     if (value != null) await _dataService.updateEventTips(event.id, value);
   }
 
+  /// Done on a commission-only card: the commission has been received, so
+  /// the card leaves Pending Payments. Undo puts it back.
+  Future<void> _markCommissionPaid(EventBooking event) async {
+    // Captured up front: Undo can be tapped after this screen is gone (the
+    // snackbar outlives it), when its context can no longer be read.
+    final dataService = _dataService;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await dataService.setCommissionPaid(event.id, true);
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Could not update: $e')));
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          'Commission of ${formatCurrency(event.totalCommission)} marked as paid',
+        ),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () => dataService.setCommissionPaid(event.id, false),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggleCommissionPaid(EventBooking event) async {
+    try {
+      await _dataService.setCommissionPaid(event.id, !event.commissionPaid);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not update: $e')));
+      }
+    }
+  }
+
+  /// Moving an event to History while its commission is still pending would
+  /// hide that commission, so ask first — confirming marks it received too.
+  Future<bool> _confirmSettleCommission(List<EventBooking> events) async {
+    final total = events.fold<double>(0, (sum, e) => sum + e.totalCommission);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Commission still pending'),
+        content: Text(
+          events.length == 1
+              ? "My Commission of ${formatCurrency(total)} hasn't been marked as received. Mark it received and move the event to History?"
+              : "My Commission of ${formatCurrency(total)} across ${events.length} events hasn't been marked as received. Mark it received and move them to History?",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: PayColors.navy),
+            child: const Text('Mark both paid'),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
+
   Future<void> _markPaid(EventBooking event) async {
-    await _dataService.markBookingPaid(event.id);
+    final settleCommission = event.hasCommission && !event.commissionPaid;
+    if (settleCommission && !await _confirmSettleCommission([event])) return;
+    await _dataService.markBookingPaid(
+      event.id,
+      settleCommission: settleCommission,
+    );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Marked as paid — moved to History')),

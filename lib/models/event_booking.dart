@@ -15,6 +15,10 @@ extension ShiftX on Shift {
   }
 }
 
+/// [EventBooking.personId] used when the signed-in Admin took the call
+/// themselves ("Self") instead of someone from Person Data.
+const selfCallerId = '__self__';
+
 /// Lifecycle of a booking: newly added events are `upcoming`; tapping "Done"
 /// on Pending Events moves them to `pendingPayment`; tapping "Done" on
 /// Pending Payments settles them as `paid`, moving them into History.
@@ -27,6 +31,23 @@ extension BookingStatusX on BookingStatus {
     return BookingStatus.values.firstWhere(
       (s) => s.name == value,
       orElse: () => BookingStatus.upcoming,
+    );
+  }
+}
+
+/// How an event's commission is counted: a fixed [total] for the event, or
+/// an amount [perHead] multiplied by the event's members.
+enum CommissionType { perHead, total }
+
+extension CommissionTypeX on CommissionType {
+  String get label => this == CommissionType.perHead ? 'Per Head' : 'Total';
+
+  String get storageValue => name;
+
+  static CommissionType fromStorage(String? value) {
+    return CommissionType.values.firstWhere(
+      (t) => t.name == value,
+      orElse: () => CommissionType.total,
     );
   }
 }
@@ -55,6 +76,15 @@ class EventBooking {
   /// Assigned Members page — attendance only, nothing else depends on it.
   final List<String> presentMemberIds;
 
+  /// Optional commission set on Admin staffing events; 0 means none. Read
+  /// together with [commissionType] — see [totalCommission].
+  final double commission;
+  final CommissionType commissionType;
+
+  /// Whether the Admin has received their commission — tracked separately
+  /// from the event payment ([status]).
+  final bool commissionPaid;
+
   const EventBooking({
     required this.id,
     required this.eventTypeId,
@@ -72,7 +102,33 @@ class EventBooking {
     this.assignedMembers = const [],
     this.requiredMembers = 0,
     this.presentMemberIds = const [],
+    this.commission = 0,
+    this.commissionType = CommissionType.total,
+    this.commissionPaid = false,
   });
+
+  bool get isSelfCaller => personId == selfCallerId;
+
+  bool get hasCommission => commission > 0;
+
+  /// Members a per-head commission is counted for: those actually assigned,
+  /// or — before anyone is assigned — the number the event requires.
+  int get commissionMemberCount =>
+      assignedMembers.isNotEmpty ? assignedMembers.length : requiredMembers;
+
+  /// The commission in money terms: the flat amount for [CommissionType.total],
+  /// or the per-head amount times [commissionMemberCount].
+  double get totalCommission => commissionType == CommissionType.perHead
+      ? commission * commissionMemberCount
+      : commission;
+
+  /// When payment for this event falls due, derived from the shift: a Day
+  /// event at 12:00 PM on its date, a Night event at the 12:00 AM that ends
+  /// its night (the start of the next day). Built from local date parts so
+  /// it never drifts across a timezone or midnight boundary.
+  DateTime get paymentDueAt => shift == Shift.day
+      ? DateTime(date.year, date.month, date.day, 12)
+      : DateTime(date.year, date.month, date.day + 1);
 
   Map<String, dynamic> toJson() => {
     'eventTypeId': eventTypeId,
@@ -90,6 +146,9 @@ class EventBooking {
     'assignedMembers': [for (final m in assignedMembers) m.toJson()],
     'requiredMembers': requiredMembers,
     'presentMemberIds': presentMemberIds,
+    'commission': commission,
+    'commissionType': commissionType.storageValue,
+    'commissionPaid': commissionPaid,
   };
 
   factory EventBooking.fromJson(String id, Map<String, dynamic> json) =>
@@ -116,6 +175,11 @@ class EventBooking {
           ...(json['presentMemberIds'] as List? ?? const [])
               .whereType<String>(),
         ],
+        commission: (json['commission'] as num?)?.toDouble() ?? 0,
+        commissionType: CommissionTypeX.fromStorage(
+          json['commissionType'] as String?,
+        ),
+        commissionPaid: json['commissionPaid'] as bool? ?? false,
       );
 }
 

@@ -26,6 +26,16 @@ class HistoryColors {
   static const Color dangerBg = Color(0xFFFDECEC);
 }
 
+/// History lists paid events, plus commission entries: events whose
+/// commission has been received while the event itself isn't paid yet.
+extension HistoryEntry on EventBooking {
+  bool get isCommissionHistoryEntry => status != BookingStatus.paid;
+
+  /// What this entry contributes to History's Total Amount.
+  double get historyValue =>
+      isCommissionHistoryEntry ? totalCommission : amount + tips;
+}
+
 /// Navy header with a back arrow, the page title and a faint gold wave.
 class HistoryHeader extends StatelessWidget {
   final String title;
@@ -534,13 +544,16 @@ class HistoryShiftPill extends StatelessWidget {
 class HistoryEventCard extends StatelessWidget {
   final EventBooking event;
   final VoidCallback onRestore;
-  final VoidCallback onDelete;
+
+  /// Null hides Delete — used for commission entries, whose event is still
+  /// live elsewhere in the app.
+  final VoidCallback? onDelete;
 
   const HistoryEventCard({
     super.key,
     required this.event,
     required this.onRestore,
-    required this.onDelete,
+    this.onDelete,
   });
 
   @override
@@ -560,7 +573,7 @@ class HistoryEventCard extends StatelessWidget {
         ),
         const SizedBox(height: 3),
         Text(
-          event.eventType,
+          event.isCommissionHistoryEntry ? 'My Commission' : event.eventType,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
@@ -586,13 +599,14 @@ class HistoryEventCard extends StatelessWidget {
           borderColor: HistoryColors.border,
           onPressed: onRestore,
         ),
-        HistoryActionButton(
-          icon: Icons.delete_outline_rounded,
-          label: 'Delete',
-          foreground: HistoryColors.danger,
-          background: HistoryColors.dangerBg,
-          onPressed: onDelete,
-        ),
+        if (onDelete != null)
+          HistoryActionButton(
+            icon: Icons.delete_outline_rounded,
+            label: 'Delete',
+            foreground: HistoryColors.danger,
+            background: HistoryColors.dangerBg,
+            onPressed: onDelete!,
+          ),
       ],
     );
 
@@ -640,8 +654,15 @@ class HistoryEventCard extends StatelessWidget {
                 icon: Icons.calendar_today_outlined,
                 text: formatEventDate(event.date),
               ),
-              _MetaItem(icon: Icons.call_outlined, text: event.personName),
-              _MetaItem(icon: Icons.location_on_outlined, text: event.location),
+              _MetaItem(
+                icon: Icons.call_outlined,
+                text: event.isSelfCaller ? 'Self' : event.personName,
+              ),
+              if (!event.isCommissionHistoryEntry)
+                _MetaItem(
+                  icon: Icons.location_on_outlined,
+                  text: event.location,
+                ),
             ],
           ),
           const Padding(
@@ -652,35 +673,118 @@ class HistoryEventCard extends StatelessWidget {
               color: HistoryColors.border,
             ),
           ),
-          Row(
-            children: [
-              Expanded(
-                child: HistoryAmountTile(
-                  label: 'Amount',
-                  value: event.amount,
-                  background: HistoryColors.amountBg,
+          if (event.isCommissionHistoryEntry)
+            _CommissionTile(event: event)
+          else ...[
+            Row(
+              children: [
+                Expanded(
+                  child: HistoryAmountTile(
+                    label: 'Amount',
+                    value: event.amount,
+                    background: HistoryColors.amountBg,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: HistoryAmountTile(
-                  label: 'Tips',
-                  value: event.tips,
-                  background: HistoryColors.tipsBg,
-                  valueColor: HistoryColors.tipsText,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: HistoryAmountTile(
+                    label: 'Tips',
+                    value: event.tips,
+                    background: HistoryColors.tipsBg,
+                    valueColor: HistoryColors.tipsText,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: HistoryAmountTile(
-                  label: 'Total',
-                  value: event.amount + event.tips,
-                  background: HistoryColors.gold,
-                  labelColor: HistoryColors.navyDeep,
-                  valueColor: HistoryColors.navyDeep,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: HistoryAmountTile(
+                    label: 'Total',
+                    value: event.amount + event.tips,
+                    background: HistoryColors.gold,
+                    labelColor: HistoryColors.navyDeep,
+                    valueColor: HistoryColors.navyDeep,
+                  ),
                 ),
-              ),
+              ],
+            ),
+            if (event.hasCommission) ...[
+              const SizedBox(height: 10),
+              _CommissionTile(event: event),
             ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// "My Commission ₹1,000 · Paid" strip, with the per-head working when
+/// relevant.
+class _CommissionTile extends StatelessWidget {
+  final EventBooking event;
+  const _CommissionTile({required this.event});
+
+  @override
+  Widget build(BuildContext context) {
+    final perHead = event.commissionType == CommissionType.perHead;
+    final members = event.commissionMemberCount;
+    final paid = event.commissionPaid;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: HistoryColors.goldLight.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: HistoryColors.gold.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'My Commission',
+                  style: TextStyle(
+                    color: HistoryColors.goldDeep,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  perHead
+                      ? '${formatCurrency(event.commission)} × $members member${members == 1 ? '' : 's'}'
+                      : 'Total',
+                  style: const TextStyle(
+                    color: HistoryColors.textSecondary,
+                    fontSize: 11.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            formatCurrency(event.totalCommission),
+            style: const TextStyle(
+              color: HistoryColors.navyDeep,
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+            decoration: BoxDecoration(
+              color: (paid ? HistoryColors.tipsText : HistoryColors.goldDeep)
+                  .withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              paid ? 'Paid' : 'Pending',
+              style: TextStyle(
+                color: paid ? HistoryColors.tipsText : HistoryColors.goldDeep,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ),
         ],
       ),

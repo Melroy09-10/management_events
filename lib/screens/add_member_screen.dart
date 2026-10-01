@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -10,6 +12,7 @@ import '../models/person.dart';
 import '../services/auth_service.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/currency.dart';
 import '../utils/text_formatters.dart';
 import '../widgets/app_text_field.dart';
 import '../widgets/confirm_delete_dialog.dart';
@@ -19,15 +22,12 @@ import '../widgets/responsive_center.dart';
 import '../widgets/searchable_dropdown_field.dart';
 import '../widgets/app_drawer.dart';
 
-/// Opens the "pick members to assign" sheet for [event] — shared by the
+/// Opens the "pick members to assign" page for [event] — shared by the
 /// Assign Members page and the Admin Pending Events page.
 Future<void> showAddMembersSheet(BuildContext context, EventBooking event) =>
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _AddMemberSheet(event: event),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => _AddMembersPage(event: event)));
 
 /// Opens the Admin Add Event sheet in edit mode for staffing [event].
 Future<void> showEditStaffingEventSheet(
@@ -801,7 +801,7 @@ class AddEventSheet extends StatefulWidget {
 /// Sentinel value for "Person Who Called" when the signed-in Admin is the
 /// one who took the call themselves — the default choice, so they don't
 /// have to pick their own name out of the Person Data list every time.
-const _selfPersonId = '__self__';
+const _selfPersonId = selfCallerId;
 
 class _AddEventSheetState extends State<AddEventSheet> {
   String? _selectedTypeId;
@@ -813,6 +813,10 @@ class _AddEventSheetState extends State<AddEventSheet> {
   String? _selectedPersonName;
   final _memberCountController = TextEditingController();
   bool _saving = false;
+
+  /// Optional — 0 means no commission.
+  double _commission = 0;
+  CommissionType _commissionType = CommissionType.total;
 
   bool get _isEditing => widget.existing != null;
 
@@ -829,6 +833,8 @@ class _AddEventSheetState extends State<AddEventSheet> {
       _selectedPersonId = existing.personId;
       _selectedPersonName = existing.personName;
       _memberCountController.text = '${existing.requiredMembers}';
+      _commission = existing.commission;
+      _commissionType = existing.commissionType;
       return;
     }
     // Defaults to "Self" — the signed-in Admin — unless they pick someone
@@ -850,6 +856,21 @@ class _AddEventSheetState extends State<AddEventSheet> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _editCommission() async {
+    final result = await showDialog<_CommissionResult>(
+      context: context,
+      builder: (_) => _CommissionDialog(
+        initialAmount: _commission,
+        initialType: _commissionType,
+      ),
+    );
+    if (result == null) return;
+    setState(() {
+      _commission = result.amount;
+      _commissionType = result.type;
+    });
   }
 
   Future<void> _pickDate() async {
@@ -992,6 +1013,9 @@ class _AddEventSheetState extends State<AddEventSheet> {
         assignedMembers: existing?.assignedMembers ?? const [],
         requiredMembers: memberCount,
         presentMemberIds: existing?.presentMemberIds ?? const [],
+        commission: _commission,
+        commissionType: _commissionType,
+        commissionPaid: existing?.commissionPaid ?? false,
       );
       if (existing != null) {
         await dataService.updateEventBooking(existing.id, booking);
@@ -1273,6 +1297,13 @@ class _AddEventSheetState extends State<AddEventSheet> {
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     maxLength: 3,
                   ),
+                  const SizedBox(height: 4),
+                  _CommissionField(
+                    amount: _commission,
+                    type: _commissionType,
+                    onTap: _editCommission,
+                    onClear: () => setState(() => _commission = 0),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -1289,14 +1320,234 @@ class _AddEventSheetState extends State<AddEventSheet> {
   }
 }
 
-/// Lets the admin pick from the existing Member/Admin roster to allocate to
-/// [event].
-class _AddMemberSheet extends StatefulWidget {
-  final EventBooking event;
-  const _AddMemberSheet({required this.event});
+class _CommissionResult {
+  final double amount;
+  final CommissionType type;
+  const _CommissionResult(this.amount, this.type);
+}
+
+/// Optional commission row in the Admin Add Event form: a small "Add
+/// Commission" button, or — once set — the amount and type with edit /
+/// remove actions.
+class _CommissionField extends StatelessWidget {
+  final double amount;
+  final CommissionType type;
+  final VoidCallback onTap;
+  final VoidCallback onClear;
+  const _CommissionField({
+    required this.amount,
+    required this.type,
+    required this.onTap,
+    required this.onClear,
+  });
 
   @override
-  State<_AddMemberSheet> createState() => _AddMemberSheetState();
+  Widget build(BuildContext context) {
+    if (amount <= 0) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          onPressed: onTap,
+          icon: const Icon(Icons.percent_rounded, size: 16),
+          label: const Text('Add Commission (optional)'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.primary,
+            visualDensity: VisualDensity.compact,
+            side: BorderSide(color: AppColors.gold.withValues(alpha: 0.6)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            textStyle: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 12.5,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Material(
+      color: AppColors.gold.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.gold.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.percent_rounded,
+                size: 18,
+                color: AppColors.goldDark,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Commission',
+                      style: TextStyle(
+                        color: AppColors.textSecondaryLight,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      '${formatCurrency(amount)} · ${type.label}',
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Edit commission',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.edit_rounded, size: 17),
+                color: AppColors.primary,
+                onPressed: onTap,
+              ),
+              IconButton(
+                tooltip: 'Remove commission',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.close_rounded, size: 18),
+                color: AppColors.textSecondaryLight,
+                onPressed: onClear,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Pop-up for entering the commission amount and whether it's per head or
+/// a total for the event. Pops a [_CommissionResult], or null on Cancel.
+class _CommissionDialog extends StatefulWidget {
+  final double initialAmount;
+  final CommissionType initialType;
+  const _CommissionDialog({
+    required this.initialAmount,
+    required this.initialType,
+  });
+
+  @override
+  State<_CommissionDialog> createState() => _CommissionDialogState();
+}
+
+class _CommissionDialogState extends State<_CommissionDialog> {
+  late final _amountController = TextEditingController(
+    text: widget.initialAmount > 0
+        ? (widget.initialAmount == widget.initialAmount.roundToDouble()
+              ? widget.initialAmount.toInt().toString()
+              : widget.initialAmount.toString())
+        : '',
+  );
+  late CommissionType _type = widget.initialType;
+  String? _error;
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final amount = double.tryParse(_amountController.text.trim());
+    if (amount == null || amount <= 0) {
+      setState(() => _error = 'Enter an amount greater than 0');
+      return;
+    }
+    Navigator.of(context).pop(_CommissionResult(amount, _type));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Commission'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _amountController,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+            ],
+            decoration: InputDecoration(
+              labelText: 'Amount',
+              prefixText: '₹ ',
+              errorText: _error,
+            ),
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
+            onSubmitted: (_) => _save(),
+          ),
+          const SizedBox(height: 16),
+          SegmentedButton<CommissionType>(
+            segments: const [
+              ButtonSegment(
+                value: CommissionType.perHead,
+                label: Text('Per Head'),
+                icon: Icon(Icons.person_outline_rounded),
+              ),
+              ButtonSegment(
+                value: CommissionType.total,
+                label: Text('Total'),
+                icon: Icon(Icons.functions_rounded),
+              ),
+            ],
+            selected: {_type},
+            onSelectionChanged: (s) => setState(() => _type = s.first),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _type == CommissionType.perHead
+                ? "Multiplied by the event's members (assigned, or required until members are assigned)."
+                : 'One fixed amount for the whole event.',
+            style: const TextStyle(
+              color: AppColors.textSecondaryLight,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _save,
+          style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Lets the admin pick from the existing Member/Admin roster to allocate to
+/// [event].
+class _AddMembersPage extends StatefulWidget {
+  final EventBooking event;
+  const _AddMembersPage({required this.event});
+
+  @override
+  State<_AddMembersPage> createState() => _AddMembersPageState();
 }
 
 /// Unifies a real login account (Member/Admin) and a roster-only Member
@@ -1319,17 +1570,34 @@ class _AllocationCandidate {
 }
 
 /// Which people the allocation picker lists.
-enum _PeopleFilter { all, contacts }
+enum _PeopleFilter { all, contacts, nearShed }
 
-class _AddMemberSheetState extends State<_AddMemberSheet> {
+class _AddMembersPageState extends State<_AddMembersPage> {
   final _searchController = TextEditingController();
   final Map<String, String> _selected = {};
   _PeopleFilter _peopleFilter = _PeopleFilter.all;
-  bool _nearbyOnly = false;
   bool _saving = false;
+
+  /// Live copy of the event, kept in sync with Firestore so edits made here
+  /// (requirement, Edit Event sheet) show immediately — and so the Edit
+  /// Event sheet is always handed the latest values to save over.
+  late EventBooking _event = widget.event;
+  StreamSubscription<EventBooking?>? _eventSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _eventSubscription = context
+        .read<DataService>()
+        .eventBooking(widget.event.id)
+        .listen((event) {
+          if (event != null && mounted) setState(() => _event = event);
+        });
+  }
 
   @override
   void dispose() {
+    _eventSubscription?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -1337,10 +1605,9 @@ class _AddMemberSheetState extends State<_AddMemberSheet> {
   Future<void> _addSelected() async {
     if (_selected.isEmpty) return;
 
-    final requiredMembers = widget.event.requiredMembers;
+    final requiredMembers = _event.requiredMembers;
     if (requiredMembers > 0 &&
-        widget.event.assignedMembers.length + _selected.length >
-            requiredMembers) {
+        _event.assignedMembers.length + _selected.length > requiredMembers) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -1359,7 +1626,7 @@ class _AddMemberSheetState extends State<_AddMemberSheet> {
 
     try {
       await dataService.assignMembersToEvent(
-        widget.event.id,
+        _event.id,
         members: [
           for (final entry in _selected.entries)
             (id: entry.key, name: entry.value),
@@ -1378,261 +1645,234 @@ class _AddMemberSheetState extends State<_AddMemberSheet> {
       SnackBar(
         content: Text(
           count == 1
-              ? '1 member added to ${widget.event.eventName}'
-              : '$count members added to ${widget.event.eventName}',
+              ? '1 member added to ${_event.eventName}'
+              : '$count members added to ${_event.eventName}',
         ),
       ),
     );
   }
 
+  Future<void> _editRequirement() async {
+    final assigned = _event.assignedMembers.length;
+    final updated = await showDialog<int>(
+      context: context,
+      builder: (_) => _EditRequirementDialog(
+        initial: _event.requiredMembers,
+        min: assigned < 1 ? 1 : assigned,
+      ),
+    );
+    if (updated == null || updated == _event.requiredMembers || !mounted) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await context.read<DataService>().updateRequiredMembers(
+        _event.id,
+        updated,
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not update requirement: $e')),
+      );
+    }
+  }
+
+  void _editEvent() => showEditStaffingEventSheet(context, _event);
+
+  void _toggle(_AllocationCandidate person) {
+    setState(() {
+      if (_selected.containsKey(person.id)) {
+        _selected.remove(person.id);
+      } else {
+        _selected[person.id] = person.name;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.read<AuthService>();
-    final assignedIds = widget.event.assignedMembers.map((m) => m.id).toSet();
-    final hasTarget = widget.event.requiredMembers > 0;
+    final assignedIds = _event.assignedMembers.map((m) => m.id).toSet();
+    final hasTarget = _event.requiredMembers > 0;
     final remaining = hasTarget
-        ? widget.event.requiredMembers - assignedIds.length - _selected.length
+        ? _event.requiredMembers - assignedIds.length - _selected.length
         : null;
+    final hasLocation = _event.location.trim().isNotEmpty;
 
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.85,
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-      decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                color: Colors.black12,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
+    return Scaffold(
+      backgroundColor: AppColors.backgroundLight,
+      drawer: const AppDrawer(),
+      appBar: AppBar(
+        title: const Text('Assign Members'),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        titleTextStyle: Theme.of(context).appBarTheme.titleTextStyle?.copyWith(
+          color: Colors.white,
+          fontSize: 18,
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(
+            height: 1,
+            color: AppColors.gold.withValues(alpha: 0.45),
           ),
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: paymentOrange.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.person_add_alt_1_rounded,
-                  color: paymentOrange,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Add Members to Event',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    Text(
-                      '${widget.event.eventName} · ${widget.event.shift.label} Shift · ${formatEventDate(widget.event.date)}',
-                      style: TextStyle(
-                        color: AppColors.textSecondaryLight,
-                        fontSize: 12,
-                      ),
-                    ),
-                    if (widget.event.location.trim().isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 3),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.location_on_rounded,
-                              size: 13,
-                              color: paymentOrangeDark,
-                            ),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                widget.event.location,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: paymentOrangeDark,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
+        ),
+      ),
+      body: ResponsiveCenter(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: _EventSummaryCard(event: _event, onEdit: _editEvent),
+            ),
+            if (hasTarget) ...[
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _RequirementCard(
+                  assigned: assignedIds.length,
+                  selected: _selected.length,
+                  required: _event.requiredMembers,
+                  onEdit: _editRequirement,
                 ),
               ),
             ],
-          ),
-          if (hasTarget) ...[
             const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: (remaining! > 0 ? AppColors.gold : AppColors.success)
-                    .withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                remaining > 0
-                    ? '$remaining more member${remaining == 1 ? '' : 's'} needed (${widget.event.requiredMembers} required in total)'
-                    : 'All ${widget.event.requiredMembers} member slot${widget.event.requiredMembers == 1 ? '' : 's'} filled',
-                style: TextStyle(
-                  color: remaining > 0 ? AppColors.goldDark : AppColors.success,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          ],
-          const SizedBox(height: 16),
-          TextField(
-            controller: _searchController,
-            decoration: InputDecoration(
-              labelText: 'Search members & admins',
-              prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon: _searchController.text.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.close_rounded),
-                      onPressed: () => setState(_searchController.clear),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: TextField(
+                controller: _searchController,
+                textInputAction: TextInputAction.search,
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'Search members...',
+                  isDense: true,
+                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                  prefixIconConstraints: const BoxConstraints(minWidth: 44),
+                  filled: true,
+                  fillColor: AppColors.surfaceLight,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(
+                      color: AppColors.primary,
+                      width: 1.3,
                     ),
+                  ),
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          onPressed: () => setState(_searchController.clear),
+                        ),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
             ),
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _FilterChip(
-                  label: 'All',
-                  selected: _peopleFilter == _PeopleFilter.all,
-                  onTap: () =>
-                      setState(() => _peopleFilter = _PeopleFilter.all),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'My Contacts',
-                  icon: Icons.contacts_rounded,
-                  selected: _peopleFilter == _PeopleFilter.contacts,
-                  onTap: () =>
-                      setState(() => _peopleFilter = _PeopleFilter.contacts),
-                ),
-                if (widget.event.location.trim().isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Container(width: 1, height: 20, color: Colors.black12),
+            const SizedBox(height: 10),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  _FilterChip(
+                    label: 'All',
+                    selected: _peopleFilter == _PeopleFilter.all,
+                    onTap: () =>
+                        setState(() => _peopleFilter = _PeopleFilter.all),
+                  ),
                   const SizedBox(width: 8),
                   _FilterChip(
-                    label: 'Near Event',
-                    icon: Icons.near_me_rounded,
-                    selected: _nearbyOnly,
-                    onTap: () => setState(() => _nearbyOnly = !_nearbyOnly),
+                    label: 'My Contact',
+                    selected: _peopleFilter == _PeopleFilter.contacts,
+                    onTap: () =>
+                        setState(() => _peopleFilter = _PeopleFilter.contacts),
                   ),
+                  if (hasLocation) ...[
+                    const SizedBox(width: 8),
+                    _FilterChip(
+                      label: 'Near Shed',
+                      selected: _peopleFilter == _PeopleFilter.nearShed,
+                      onTap: () => setState(
+                        () => _peopleFilter = _PeopleFilter.nearShed,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 4),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: () => showModalBottomSheet(
-                context: context,
-                isScrollControlled: true,
-                backgroundColor: Colors.transparent,
-                builder: (_) => _CreateNewMemberSheet(event: widget.event),
               ),
-              icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
-              label: const Text("Person not listed? Create new member"),
             ),
-          ),
-          Expanded(
-            child: StreamBuilder<List<AppUser>>(
-              stream: auth.members(),
-              builder: (context, authSnapshot) {
-                return StreamBuilder<List<roster_member.Member>>(
-                  stream: context.read<DataService>().members(),
-                  builder: (context, rosterSnapshot) {
-                    final stillLoading =
-                        authSnapshot.connectionState ==
-                            ConnectionState.waiting &&
-                        rosterSnapshot.connectionState ==
-                            ConnectionState.waiting;
-                    if (stillLoading) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
+            Expanded(
+              child: StreamBuilder<List<AppUser>>(
+                stream: auth.members(),
+                builder: (context, authSnapshot) {
+                  return StreamBuilder<List<roster_member.Member>>(
+                    stream: context.read<DataService>().members(),
+                    builder: (context, rosterSnapshot) {
+                      final stillLoading =
+                          authSnapshot.connectionState ==
+                              ConnectionState.waiting &&
+                          rosterSnapshot.connectionState ==
+                              ConnectionState.waiting;
+                      if (stillLoading) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
 
-                    final hasAnyCandidate =
-                        (authSnapshot.data?.isNotEmpty ?? false) ||
-                        (rosterSnapshot.data?.isNotEmpty ?? false);
+                      final hasAnyCandidate =
+                          (authSnapshot.data?.isNotEmpty ?? false) ||
+                          (rosterSnapshot.data?.isNotEmpty ?? false);
 
-                    final query = _searchController.text.trim().toLowerCase();
-                    var people =
-                        <_AllocationCandidate>[
-                              for (final u
-                                  in authSnapshot.data ?? const <AppUser>[])
-                                _AllocationCandidate(
-                                  id: u.id,
-                                  name: u.name,
-                                  place: u.place,
-                                ),
-                              for (final m
-                                  in rosterSnapshot.data ??
-                                      const <roster_member.Member>[])
-                                _AllocationCandidate(
-                                  id: m.id,
-                                  name: m.name,
-                                  place: '',
-                                  isContact: true,
-                                ),
-                            ]
-                            .where((u) => !assignedIds.contains(u.id))
-                            .where(
-                              (u) =>
-                                  query.isEmpty ||
-                                  u.name.toLowerCase().contains(query),
-                            )
-                            .where(
-                              (u) => switch (_peopleFilter) {
-                                _PeopleFilter.all => true,
-                                _PeopleFilter.contacts => u.isContact,
-                              },
-                            )
-                            .toList();
+                      final query = _searchController.text.trim().toLowerCase();
+                      final people =
+                          <_AllocationCandidate>[
+                                for (final u
+                                    in authSnapshot.data ?? const <AppUser>[])
+                                  _AllocationCandidate(
+                                    id: u.id,
+                                    name: u.name,
+                                    place: u.place,
+                                  ),
+                                for (final m
+                                    in rosterSnapshot.data ??
+                                        const <roster_member.Member>[])
+                                  _AllocationCandidate(
+                                    id: m.id,
+                                    name: m.name,
+                                    place: '',
+                                    isContact: true,
+                                  ),
+                              ]
+                              .where((u) => !assignedIds.contains(u.id))
+                              .where(
+                                (u) =>
+                                    query.isEmpty ||
+                                    u.name.toLowerCase().contains(query),
+                              )
+                              .where(
+                                (u) => switch (_peopleFilter) {
+                                  _PeopleFilter.all => true,
+                                  _PeopleFilter.contacts => u.isContact,
+                                  _PeopleFilter.nearShed => _isNearbyPlace(
+                                    u.place,
+                                    _event.location,
+                                  ),
+                                },
+                              )
+                              .toList();
 
-                    if (_nearbyOnly) {
-                      people = people
-                          .where(
-                            (u) =>
-                                _isNearbyPlace(u.place, widget.event.location),
-                          )
-                          .toList();
-                    } else {
                       people.sort((a, b) {
-                        final aNear = _isNearbyPlace(
-                          a.place,
-                          widget.event.location,
-                        );
-                        final bNear = _isNearbyPlace(
-                          b.place,
-                          widget.event.location,
-                        );
+                        final aNear = _isNearbyPlace(a.place, _event.location);
+                        final bNear = _isNearbyPlace(b.place, _event.location);
                         if (aNear == bNear) {
                           return a.name.toLowerCase().compareTo(
                             b.name.toLowerCase(),
@@ -1640,156 +1880,664 @@ class _AddMemberSheetState extends State<_AddMemberSheet> {
                         }
                         return aNear ? -1 : 1;
                       });
-                    }
 
-                    if (people.isEmpty) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.people_outline_rounded,
-                                size: 48,
-                                color: AppColors.textSecondaryLight,
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                !hasAnyCandidate
-                                    ? 'No people to assign yet'
-                                    : 'No matches for these filters',
-                                textAlign: TextAlign.center,
+                      final listHeader = Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 6, 0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${people.length} available',
                                 style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.textSecondaryLight,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+                            TextButton.icon(
+                              onPressed: () => showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                builder: (_) => _CreateNewMemberSheet(
+                                  event: _event,
+                                  requiredMembers: _event.requiredMembers,
+                                ),
+                              ),
+                              icon: const Icon(Icons.add_rounded, size: 16),
+                              label: const Text('Create new member'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: AppColors.goldDark,
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
+                                textStyle: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12.5,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       );
-                    }
 
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6),
-                          child: Text(
-                            '${people.length} ${people.length == 1 ? 'person' : 'people'} available',
-                            style: TextStyle(
-                              color: AppColors.textSecondaryLight,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
+                      if (people.isEmpty) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            listHeader,
+                            Expanded(
+                              child: _EmptyPeopleState(
+                                title: !hasAnyCandidate
+                                    ? 'No people to assign yet'
+                                    : 'No matches for these filters',
+                                message: !hasAnyCandidate
+                                    ? 'Create a new member or add contacts to get started.'
+                                    : 'Try a different name or filter.',
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          listHeader,
+                          Expanded(
+                            child: ListView.builder(
+                              padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
+                              itemCount: people.length,
+                              itemBuilder: (context, index) {
+                                final person = people[index];
+                                final checked = _selected.containsKey(
+                                  person.id,
+                                );
+                                return _CandidateTile(
+                                  person: person,
+                                  checked: checked,
+                                  near: _isNearbyPlace(
+                                    person.place,
+                                    _event.location,
+                                  ),
+                                  enabled:
+                                      checked || !hasTarget || remaining! > 0,
+                                  onTap: () => _toggle(person),
+                                );
+                              },
                             ),
                           ),
-                        ),
-                        Expanded(
-                          child: ListView.builder(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            itemCount: people.length,
-                            itemBuilder: (context, index) {
-                              final person = people[index];
-                              final checked = _selected.containsKey(person.id);
-                              final atLimit =
-                                  !checked && hasTarget && remaining! <= 0;
-                              final near = _isNearbyPlace(
-                                person.place,
-                                widget.event.location,
-                              );
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                decoration: BoxDecoration(
-                                  color: checked
-                                      ? paymentOrange.withValues(alpha: 0.08)
-                                      : Theme.of(context).cardColor,
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: checked
-                                        ? paymentOrange
-                                        : Colors.black12.withValues(
-                                            alpha: 0.06,
-                                          ),
-                                    width: checked ? 1.3 : 1,
-                                  ),
-                                ),
-                                child: CheckboxListTile(
-                                  value: checked,
-                                  onChanged: atLimit
-                                      ? null
-                                      : (value) => setState(() {
-                                          if (value ?? false) {
-                                            _selected[person.id] = person.name;
-                                          } else {
-                                            _selected.remove(person.id);
-                                          }
-                                        }),
-                                  controlAffinity:
-                                      ListTileControlAffinity.leading,
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                  ),
-                                  title: Text(
-                                    person.name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  subtitle: person.place.trim().isEmpty
-                                      ? null
-                                      : Row(
-                                          children: [
-                                            Icon(
-                                              Icons.location_on_outlined,
-                                              size: 12,
-                                              color:
-                                                  AppColors.textSecondaryLight,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Flexible(
-                                              child: Text(
-                                                person.place,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  color: AppColors
-                                                      .textSecondaryLight,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                  secondary: near ? const _NearBadge() : null,
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                );
-              },
+                        ],
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: AppColors.surfaceLight,
+          border: const Border(top: BorderSide(color: AppColors.border)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 12,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+            // heightFactor: 1 keeps the bar as tall as the button — a plain
+            // Align here would expand to fill the whole screen.
+            child: Align(
+              heightFactor: 1,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 150),
+                  opacity: _selected.isEmpty ? 0.55 : 1,
+                  child: PrimaryButton(
+                    label: _selected.isEmpty
+                        ? 'Select members to add'
+                        : 'Add ${_selected.length} Selected Member${_selected.length == 1 ? '' : 's'}',
+                    onPressed: _selected.isEmpty ? null : _addSelected,
+                    loading: _saving,
+                  ),
+                ),
+              ),
             ),
           ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              0,
-              12,
-              0,
-              12 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact white card naming the event being staffed: title, event · shift
+/// · date, and location.
+class _EventSummaryCard extends StatelessWidget {
+  final EventBooking event;
+  final VoidCallback onEdit;
+  const _EventSummaryCard({required this.event, required this.onEdit});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.gold.withValues(alpha: 0.5)),
             ),
-            child: PrimaryButton(
-              label: _selected.isEmpty
-                  ? 'Select members to add'
-                  : 'Add ${_selected.length} Selected',
-              onPressed: _selected.isEmpty ? null : _addSelected,
-              loading: _saving,
+            child: const Icon(
+              Icons.groups_rounded,
+              color: AppColors.gold,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Add Members to Event',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppColors.textPrimaryLight,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${event.eventName} · ${event.shift.label} Shift · ${formatEventDate(event.date)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textSecondaryLight,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (event.location.trim().isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.location_on_rounded,
+                        size: 14,
+                        color: AppColors.goldDark,
+                      ),
+                      const SizedBox(width: 3),
+                      Expanded(
+                        child: Text(
+                          event.location,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.textPrimaryLight,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            onPressed: onEdit,
+            tooltip: 'Edit event details',
+            icon: const Icon(Icons.edit_rounded, size: 17),
+            style: IconButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              backgroundColor: AppColors.surfaceLight,
+              fixedSize: const Size(36, 36),
+              minimumSize: const Size(36, 36),
+              padding: EdgeInsets.zero,
+              side: BorderSide(color: AppColors.gold.withValues(alpha: 0.6)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Cream/gold strip showing how many members are on the event against its
+/// target, with an Edit action to change the target.
+class _RequirementCard extends StatelessWidget {
+  final int assigned;
+  final int selected;
+  final int required;
+  final VoidCallback onEdit;
+  const _RequirementCard({
+    required this.assigned,
+    required this.selected,
+    required this.required,
+    required this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = required - assigned - selected;
+    final full = remaining <= 0;
+    final String status;
+    if (remaining > 0) {
+      status = '$remaining more needed';
+    } else if (remaining == 0) {
+      status = 'All slots filled';
+    } else {
+      status = 'Remove ${-remaining} from selection';
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: AppColors.gold.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.gold.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '$assigned / $required',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const TextSpan(text: ' members added'),
+                    ],
+                  ),
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  selected > 0 ? '$status · $selected selected' : status,
+                  style: TextStyle(
+                    color: remaining < 0
+                        ? AppColors.danger
+                        : full
+                        ? AppColors.success
+                        : AppColors.goldDark,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          OutlinedButton.icon(
+            onPressed: onEdit,
+            icon: const Icon(Icons.edit_rounded, size: 14),
+            label: const Text('Edit'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              backgroundColor: AppColors.surfaceLight,
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              minimumSize: const Size(0, 34),
+              side: BorderSide(color: AppColors.gold.withValues(alpha: 0.6)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              textStyle: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 12.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Stepper dialog for changing how many members an event needs. Can't go
+/// below the members already assigned (or 1, so the event stays a
+/// staffing event).
+class _EditRequirementDialog extends StatefulWidget {
+  final int initial;
+  final int min;
+  const _EditRequirementDialog({required this.initial, required this.min});
+
+  @override
+  State<_EditRequirementDialog> createState() => _EditRequirementDialogState();
+}
+
+class _EditRequirementDialogState extends State<_EditRequirementDialog> {
+  static const _max = 99;
+  late int _value = widget.initial.clamp(widget.min, _max);
+
+  Widget _stepButton(IconData icon, VoidCallback? onPressed) {
+    return IconButton.filledTonal(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 20),
+      style: IconButton.styleFrom(
+        backgroundColor: AppColors.primary.withValues(alpha: 0.08),
+        foregroundColor: AppColors.primary,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Members required'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _stepButton(
+                Icons.remove_rounded,
+                _value > widget.min ? () => setState(() => _value--) : null,
+              ),
+              SizedBox(
+                width: 72,
+                child: Text(
+                  '$_value',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 30,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              _stepButton(
+                Icons.add_rounded,
+                _value < _max ? () => setState(() => _value++) : null,
+              ),
+            ],
+          ),
+          if (widget.min > 1) ...[
+            const SizedBox(height: 10),
+            Text(
+              '${widget.min} already assigned — can\'t go lower.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.textSecondaryLight,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_value),
+          style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _InitialsAvatar extends StatelessWidget {
+  final String name;
+  final bool highlighted;
+  const _InitialsAvatar({required this.name, this.highlighted = false});
+
+  static const double size = 38;
+
+  String get _initials {
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return (parts.first[0] + parts.last[0]).toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: highlighted
+            ? AppColors.primary
+            : AppColors.primary.withValues(alpha: 0.07),
+        border: Border.all(
+          color: highlighted
+              ? AppColors.gold
+              : AppColors.primary.withValues(alpha: 0.10),
+        ),
+      ),
+      child: Text(
+        _initials,
+        style: TextStyle(
+          color: highlighted ? AppColors.gold : AppColors.primary,
+          fontWeight: FontWeight.w800,
+          fontSize: size * 0.36,
+        ),
+      ),
+    );
+  }
+}
+
+/// One selectable member row: checkbox, initials, name, place and a Near
+/// badge when they're near the shed. Tap anywhere to toggle.
+class _CandidateTile extends StatelessWidget {
+  final _AllocationCandidate person;
+  final bool checked;
+  final bool near;
+  final bool enabled;
+  final VoidCallback onTap;
+  const _CandidateTile({
+    required this.person,
+    required this.checked,
+    required this.near,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPlace = person.place.trim().isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 150),
+        opacity: enabled ? 1 : 0.45,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          decoration: BoxDecoration(
+            color: checked
+                ? AppColors.primary.withValues(alpha: 0.04)
+                : AppColors.surfaceLight,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: checked ? AppColors.primary : AppColors.border,
+              width: checked ? 1.3 : 1,
+            ),
+            boxShadow: checked
+                ? null
+                : [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.025),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: enabled ? onTap : null,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(4, 8, 12, 8),
+                child: Row(
+                  children: [
+                    Checkbox(
+                      value: checked,
+                      onChanged: enabled ? (_) => onTap() : null,
+                      activeColor: AppColors.primary,
+                      checkColor: AppColors.gold,
+                      visualDensity: VisualDensity.compact,
+                      side: BorderSide(
+                        color: AppColors.textSecondaryLight.withValues(
+                          alpha: 0.5,
+                        ),
+                        width: 1.5,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                    ),
+                    _InitialsAvatar(name: person.name, highlighted: checked),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            person.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.textPrimaryLight,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14.5,
+                            ),
+                          ),
+                          if (hasPlace) ...[
+                            const SizedBox(height: 2),
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.location_on_outlined,
+                                  size: 13,
+                                  color: AppColors.textSecondaryLight,
+                                ),
+                                const SizedBox(width: 3),
+                                Flexible(
+                                  child: Text(
+                                    person.place,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textSecondaryLight,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (near) ...[const SizedBox(width: 8), const _NearBadge()],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyPeopleState extends StatelessWidget {
+  final String title;
+  final String message;
+  const _EmptyPeopleState({required this.title, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.primary.withValues(alpha: 0.06),
+              ),
+              child: const Icon(
+                Icons.person_search_rounded,
+                size: 30,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.textSecondaryLight,
+                fontSize: 12.5,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1820,44 +2568,40 @@ class _FilterChip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  final IconData? icon;
   const _FilterChip({
     required this.label,
     required this.selected,
     required this.onTap,
-    this.icon,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: selected ? paymentOrange : paymentOrange.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(20),
-      child: InkWell(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      decoration: BoxDecoration(
+        color: selected ? AppColors.primary : AppColors.surfaceLight,
         borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (icon != null) ...[
-                Icon(
-                  icon,
-                  size: 15,
-                  color: selected ? Colors.white : paymentOrangeDark,
-                ),
-                const SizedBox(width: 5),
-              ],
-              Text(
-                label,
-                style: TextStyle(
-                  color: selected ? Colors.white : paymentOrangeDark,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12.5,
-                ),
+        border: Border.all(
+          color: selected
+              ? AppColors.gold.withValues(alpha: 0.6)
+              : AppColors.border,
+        ),
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : AppColors.primary,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1927,7 +2671,14 @@ class _NearBadge extends StatelessWidget {
 /// this sheet and the roster picker behind it.
 class _CreateNewMemberSheet extends StatefulWidget {
   final EventBooking event;
-  const _CreateNewMemberSheet({required this.event});
+
+  /// The event's current target, which may have been edited on the picker
+  /// page since [event] was loaded.
+  final int requiredMembers;
+  const _CreateNewMemberSheet({
+    required this.event,
+    required this.requiredMembers,
+  });
 
   @override
   State<_CreateNewMemberSheet> createState() => _CreateNewMemberSheetState();
@@ -1955,8 +2706,8 @@ class _CreateNewMemberSheetState extends State<_CreateNewMemberSheet> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (widget.event.requiredMembers > 0 &&
-        widget.event.assignedMembers.length >= widget.event.requiredMembers) {
+    if (widget.requiredMembers > 0 &&
+        widget.event.assignedMembers.length >= widget.requiredMembers) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('This event already has all the members it needs.'),

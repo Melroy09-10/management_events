@@ -138,7 +138,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }).toList();
     final totalAmount = filtered.fold<double>(
       0,
-      (sum, e) => sum + e.amount + e.tips,
+      (sum, e) => sum + e.historyValue,
     );
     final hasFilter = _monthFilter != null || _eventTypeFilter != null;
     final showList =
@@ -304,7 +304,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         child: HistoryEventCard(
                           event: event,
                           onRestore: () => _restore(event, dataService),
-                          onDelete: () => _delete(event, dataService),
+                          onDelete: event.isCommissionHistoryEntry
+                              ? null
+                              : () => _delete(event, dataService),
                         ),
                       ),
                     ),
@@ -375,7 +377,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (confirmed != true || !mounted) return;
     await _animateOutThen(
       event.id,
-      () => dataService.markBookingUnpaid(event.id),
+      // A commission entry goes back by un-marking the commission; the
+      // event itself was never paid.
+      () => event.isCommissionHistoryEntry
+          ? dataService.setCommissionPaid(event.id, false)
+          : dataService.markBookingUnpaid(event.id),
       successMessage: 'Moved back to Pending Payments',
     );
   }

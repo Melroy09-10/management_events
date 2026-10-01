@@ -35,6 +35,18 @@ class PayColors {
   static const double radius = 16;
 }
 
+/// Pending Payments lists two kinds of entry: events awaiting payment, and
+/// still-upcoming events listed only for their commission. Copy, selection
+/// and Payment Done treat both alike, valued by [pendingValue].
+extension PendingPaymentEntry on EventBooking {
+  /// Listed only for its commission — the event itself isn't due yet.
+  bool get isCommissionOnly => status != BookingStatus.pendingPayment;
+
+  /// Amount + tips for an event awaiting payment, or the commission for a
+  /// commission-only entry.
+  double get pendingValue => isCommissionOnly ? totalCommission : amount + tips;
+}
+
 // --- Small building blocks ---
 
 /// Soft warm-yellow Day / light-blue Night badge.
@@ -205,6 +217,422 @@ class PaymentAmountBox extends StatelessWidget {
   }
 }
 
+/// "Due 02 Oct, 12:00 PM" — when an event's payment falls due
+/// ([EventBooking.paymentDueAt], derived from its shift).
+String formatPaymentDue(EventBooking event) {
+  final due = event.paymentDueAt;
+  final hour = due.hour % 12 == 0 ? 12 : due.hour % 12;
+  final period = due.hour < 12 ? 'AM' : 'PM';
+  final minute = due.minute.toString().padLeft(2, '0');
+  final day = formatEventDate(due).split(' ').take(2).join(' ');
+  return 'Due $day, $hour:$minute $period';
+}
+
+/// Small Pending (amber) / Paid (green) pill. With [onTap] it toggles and
+/// shows a tiny swap icon so it reads as tappable.
+class PaymentStatusPill extends StatelessWidget {
+  final bool paid;
+  final VoidCallback? onTap;
+  const PaymentStatusPill({super.key, required this.paid, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = paid ? PayColors.green : PayColors.dayText;
+    return Material(
+      color: (paid ? PayColors.green : PayColors.gold).withValues(
+        alpha: paid ? 0.12 : 0.22,
+      ),
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                paid ? 'Paid' : 'Pending',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              if (onTap != null) ...[
+                const SizedBox(width: 3),
+                Icon(Icons.swap_horiz_rounded, size: 12, color: color),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The event's separate money lines, shown under the Amount / Tips / Total
+/// boxes when the Admin set a commission: the Event Payment (still owed,
+/// as the event is in Pending Payments) and My Commission with its own
+/// Pending / Paid status, which [onToggleCommissionPaid] flips.
+class PaymentLedger extends StatelessWidget {
+  final EventBooking event;
+  final VoidCallback? onToggleCommissionPaid;
+  const PaymentLedger({
+    super.key,
+    required this.event,
+    this.onToggleCommissionPaid,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final perHead = event.commissionType == CommissionType.perHead;
+    final members = event.commissionMemberCount;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
+      decoration: BoxDecoration(
+        color: PayColors.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: PayColors.border),
+      ),
+      child: Column(
+        children: [
+          _LedgerLine(
+            label: 'Event Payment',
+            amount: event.amount + event.tips,
+            status: const PaymentStatusPill(paid: false),
+          ),
+          const Divider(height: 14, color: PayColors.border),
+          _LedgerLine(
+            label: 'My Commission',
+            caption: perHead
+                ? '${formatCurrency(event.commission)} × $members member${members == 1 ? '' : 's'}'
+                : 'Total',
+            amount: event.totalCommission,
+            highlight: true,
+            status: PaymentStatusPill(
+              paid: event.commissionPaid,
+              onTap: onToggleCommissionPaid,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LedgerLine extends StatelessWidget {
+  final String label;
+  final String? caption;
+  final double amount;
+  final bool highlight;
+  final Widget status;
+  const _LedgerLine({
+    required this.label,
+    required this.amount,
+    required this.status,
+    this.caption,
+    this.highlight = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: highlight ? PayColors.dayText : PayColors.text,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (caption != null)
+                Text(
+                  caption!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: PayColors.textSecondary,
+                    fontSize: 11,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          formatCurrency(amount),
+          style: const TextStyle(
+            color: PayColors.navyDeep,
+            fontSize: 14.5,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 92,
+          child: Align(
+            alignment: Alignment.centerRight,
+            // Scales down rather than overflowing on narrow screens or
+            // large system font sizes.
+            child: FittedBox(fit: BoxFit.scaleDown, child: status),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Date + payment due time, then caller (Self or the person's name) with
+/// the member count and location — the info lines under an event's title.
+class PaymentEventMeta extends StatelessWidget {
+  final EventBooking event;
+  const PaymentEventMeta({super.key, required this.event});
+
+  static const _meta = TextStyle(color: PayColors.textSecondary, fontSize: 13);
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Icon(
+              Icons.calendar_today_outlined,
+              size: 14,
+              color: PayColors.textSecondary,
+            ),
+            const SizedBox(width: 5),
+            Text(formatEventDate(event.date), style: _meta),
+            const SizedBox(width: 12),
+            const Icon(
+              Icons.schedule_rounded,
+              size: 15,
+              color: PayColors.textSecondary,
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                formatPaymentDue(event),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _meta,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            const Icon(
+              Icons.call_outlined,
+              size: 14,
+              color: PayColors.textSecondary,
+            ),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                [
+                  event.isSelfCaller ? 'Self' : event.personName,
+                  if (event.requiredMembers > 0)
+                    '${event.commissionMemberCount} member${event.commissionMemberCount == 1 ? '' : 's'}',
+                ].join(' · '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _meta,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Icon(
+              Icons.location_on_outlined,
+              size: 15,
+              color: PayColors.textSecondary,
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                event.location,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _meta,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// A still-upcoming event listed in Pending Payments only for its
+/// commission: just the date, who called, the shift and My Commission, with
+/// a Done button to record that the commission has been paid. Once the
+/// event's date passes it moves to Pending Payments proper and shows as a
+/// full [PaymentEventCard].
+class UpcomingCommissionCard extends StatelessWidget {
+  final EventBooking event;
+  final VoidCallback onDone;
+  final VoidCallback onUndoCopied;
+  const UpcomingCommissionCard({
+    super.key,
+    required this.event,
+    required this.onDone,
+    required this.onUndoCopied,
+  });
+
+  static const _meta = TextStyle(color: PayColors.textSecondary, fontSize: 13);
+
+  @override
+  Widget build(BuildContext context) {
+    final perHead = event.commissionType == CommissionType.perHead;
+    final members = event.commissionMemberCount;
+    final copied = event.copied;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: copied
+            ? PayColors.green.withValues(alpha: 0.07)
+            : PayColors.card,
+        borderRadius: BorderRadius.circular(PayColors.radius),
+        border: Border.all(
+          color: copied ? PayColors.green : PayColors.border,
+          width: copied ? 1.5 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  event.eventName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: PayColors.text,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16.5,
+                    height: 1.25,
+                  ),
+                ),
+              ),
+              if (copied) ...[
+                const SizedBox(width: 6),
+                _CopiedPill(onTap: onUndoCopied),
+              ],
+              const SizedBox(width: 6),
+              PaymentShiftBadge(shift: event.shift),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              const Icon(
+                Icons.calendar_today_outlined,
+                size: 14,
+                color: PayColors.textSecondary,
+              ),
+              const SizedBox(width: 5),
+              Text(formatEventDate(event.date), style: _meta),
+              const SizedBox(width: 12),
+              const Icon(
+                Icons.call_outlined,
+                size: 14,
+                color: PayColors.textSecondary,
+              ),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  event.isSelfCaller ? 'Self' : event.personName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _meta,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+            decoration: BoxDecoration(
+              color: PayColors.goldLight.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: PayColors.gold.withValues(alpha: 0.45)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'My Commission',
+                        style: TextStyle(
+                          color: PayColors.dayText,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        perHead
+                            ? '${formatCurrency(event.commission)} × $members member${members == 1 ? '' : 's'}'
+                            : 'Total',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: PayColors.textSecondary,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  formatCurrency(event.totalCommission),
+                  style: const TextStyle(
+                    color: PayColors.navyDeep,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: onDone,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: PayColors.green,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(Icons.check_circle_rounded, size: 19),
+              label: const Text(
+                'Done',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Small square icon button used in the page header (Search, Calendar).
 class PaymentHeaderButton extends StatelessWidget {
   final IconData icon;
@@ -257,11 +685,16 @@ class PaymentSummaryCard extends StatelessWidget {
   final int eventCount;
   final int personCount;
 
+  /// My Commission still to be received across the listed events — shown
+  /// beside, never inside, [total].
+  final double commissionPending;
+
   const PaymentSummaryCard({
     super.key,
     required this.total,
     required this.eventCount,
     required this.personCount,
+    this.commissionPending = 0,
   });
 
   @override
@@ -332,6 +765,17 @@ class PaymentSummaryCard extends StatelessWidget {
                             ),
                           ),
                         ),
+                        if (commissionPending > 0) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            '+ ${formatCurrency(commissionPending)} my commission pending',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.78),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -499,6 +943,7 @@ class PaymentEventCard extends StatelessWidget {
   final VoidCallback onEditAmount;
   final VoidCallback onEditTips;
   final VoidCallback onUndoCopied;
+  final VoidCallback? onToggleCommissionPaid;
 
   const PaymentEventCard({
     super.key,
@@ -509,9 +954,8 @@ class PaymentEventCard extends StatelessWidget {
     required this.onEditAmount,
     required this.onEditTips,
     required this.onUndoCopied,
+    this.onToggleCommissionPaid,
   });
-
-  static const _meta = TextStyle(color: PayColors.textSecondary, fontSize: 13);
 
   @override
   Widget build(BuildContext context) {
@@ -556,38 +1000,20 @@ class PaymentEventCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 6),
-          Row(
-            children: [
-              const Icon(
-                Icons.calendar_today_outlined,
-                size: 14,
-                color: PayColors.textSecondary,
-              ),
-              const SizedBox(width: 5),
-              Text(formatEventDate(event.date), style: _meta),
-              const SizedBox(width: 12),
-              const Icon(
-                Icons.location_on_outlined,
-                size: 15,
-                color: PayColors.textSecondary,
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  event.location,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: _meta,
-                ),
-              ),
-            ],
-          ),
+          PaymentEventMeta(event: event),
           const SizedBox(height: 12),
           PaymentAmountBox.row(
             event,
             onEditAmount: onEditAmount,
             onEditTips: onEditTips,
           ),
+          if (event.hasCommission) ...[
+            const SizedBox(height: 8),
+            PaymentLedger(
+              event: event,
+              onToggleCommissionPaid: onToggleCommissionPaid,
+            ),
+          ],
           const SizedBox(height: 12),
           Row(
             children: [
@@ -995,6 +1421,20 @@ class _SelectEventsDialogState extends State<_SelectEventsDialog> {
       if (e.copied) e.id,
   };
 
+  /// Narrows the list by entry kind and event name. Copy, Save and Payment
+  /// Done only act on the events currently shown; hidden ones are left as
+  /// they are.
+  _EntryKindFilter _kind = _EntryKindFilter.all;
+  String? _eventName;
+
+  List<EventBooking> get _visible => widget.events.where((e) {
+    final kindMatches = switch (_kind) {
+      _EntryKindFilter.all => true,
+      _EntryKindFilter.commission => e.isCommissionOnly,
+    };
+    return kindMatches && (_eventName == null || e.eventName == _eventName);
+  }).toList();
+
   void _toggle(EventBooking event) {
     setState(() {
       if (!_selectedIds.remove(event.id)) _selectedIds.add(event.id);
@@ -1002,11 +1442,12 @@ class _SelectEventsDialogState extends State<_SelectEventsDialog> {
   }
 
   void _toggleAll() {
+    final visibleIds = _visible.map((e) => e.id).toSet();
     setState(() {
-      if (_selectedIds.length == widget.events.length) {
-        _selectedIds.clear();
+      if (visibleIds.every(_selectedIds.contains)) {
+        _selectedIds.removeAll(visibleIds);
       } else {
-        _selectedIds.addAll(widget.events.map((e) => e.id));
+        _selectedIds.addAll(visibleIds);
       }
     });
   }
@@ -1015,15 +1456,15 @@ class _SelectEventsDialogState extends State<_SelectEventsDialog> {
   /// [selected] as paid (moving them to History).
   Future<void> _confirmPaymentDone(List<EventBooking> selected) async {
     final count = selected.length;
-    final total = selected.fold<double>(0, (sum, e) => sum + e.amount + e.tips);
+    final total = selected.fold<double>(0, (sum, e) => sum + e.pendingValue);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Mark as paid?'),
         content: Text(
           '$count ${count == 1 ? 'event' : 'events'} '
-          '(${formatCurrency(total)}) will be marked as paid and moved to '
-          'History.',
+          '(${formatCurrency(total)}) will be marked as paid. Event payments '
+          'move to History; commission-only entries leave Pending Payments.',
         ),
         actions: [
           TextButton(
@@ -1050,17 +1491,20 @@ class _SelectEventsDialogState extends State<_SelectEventsDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final events = widget.events;
+    final events = _visible;
+    final eventNames = {for (final e in widget.events) e.eventName}.toList()
+      ..sort();
+    final hasCommission = widget.events.any((e) => e.isCommissionOnly);
     final selected = events.where((e) => _selectedIds.contains(e.id)).toList();
     final toUnmark = events
         .where((e) => e.copied && !_selectedIds.contains(e.id))
         .toList();
     final selectedTotal = selected.fold<double>(
       0,
-      (sum, e) => sum + e.amount + e.tips,
+      (sum, e) => sum + e.pendingValue,
     );
     final canConfirm = selected.isNotEmpty || toUnmark.isNotEmpty;
-    final allSelected = selected.length == events.length;
+    final allSelected = events.isNotEmpty && selected.length == events.length;
     final noneSelected = selected.isEmpty;
     final screenHeight = MediaQuery.sizeOf(context).height;
 
@@ -1115,6 +1559,49 @@ class _SelectEventsDialogState extends State<_SelectEventsDialog> {
                 ],
               ),
             ),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
+              child: Row(
+                children: [
+                  if (hasCommission) ...[
+                    _DialogFilterChip(
+                      label: 'All',
+                      selected: _kind == _EntryKindFilter.all,
+                      onTap: () => setState(() => _kind = _EntryKindFilter.all),
+                    ),
+                    const SizedBox(width: 6),
+                    _DialogFilterChip(
+                      label: 'Commission',
+                      selected: _kind == _EntryKindFilter.commission,
+                      onTap: () =>
+                          setState(() => _kind = _EntryKindFilter.commission),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  PopupMenuButton<String>(
+                    tooltip: 'Filter by event name',
+                    position: PopupMenuPosition.under,
+                    onSelected: (value) => setState(
+                      () => _eventName = value.isEmpty ? null : value,
+                    ),
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                        value: '',
+                        child: Text('All event names'),
+                      ),
+                      for (final name in eventNames)
+                        PopupMenuItem(value: name, child: Text(name)),
+                    ],
+                    child: _DialogFilterChip(
+                      label: _eventName ?? 'Event name',
+                      icon: Icons.arrow_drop_down_rounded,
+                      selected: _eventName != null,
+                    ),
+                  ),
+                ],
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
               child: Material(
@@ -1163,6 +1650,18 @@ class _SelectEventsDialogState extends State<_SelectEventsDialog> {
                 ),
               ),
             ),
+            if (events.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Text(
+                  'No events match these filters.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: PayColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             Flexible(
               child: ListView.separated(
                 shrinkWrap: true,
@@ -1284,6 +1783,62 @@ class _SelectEventsDialogState extends State<_SelectEventsDialog> {
         ),
       ),
     );
+  }
+}
+
+/// Entry kinds the Select Events dialog can narrow to.
+enum _EntryKindFilter { all, commission }
+
+/// Compact pill used for the Select Events dialog's filters. Without
+/// [onTap] it's purely visual (the event-name menu handles its own taps).
+class _DialogFilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+  final IconData? icon;
+  const _DialogFilterChip({
+    required this.label,
+    required this.selected,
+    this.onTap,
+    this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = selected ? Colors.white : PayColors.navy;
+    final chip = Container(
+      padding: EdgeInsets.fromLTRB(12, 6, icon == null ? 12 : 6, 6),
+      decoration: BoxDecoration(
+        color: selected ? PayColors.navy : PayColors.card,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: selected
+              ? PayColors.gold.withValues(alpha: 0.6)
+              : PayColors.border,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 160),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: foreground,
+                fontWeight: FontWeight.w700,
+                fontSize: 12.5,
+              ),
+            ),
+          ),
+          if (icon != null) Icon(icon, size: 18, color: foreground),
+        ],
+      ),
+    );
+    if (onTap == null) return chip;
+    return GestureDetector(onTap: onTap, child: chip);
   }
 }
 
@@ -1438,7 +1993,17 @@ class SelectableEventTile extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    PaymentAmountBox.row(event, dense: true),
+                    if (event.isCommissionOnly)
+                      PaymentAmountBox(
+                        label: 'My Commission',
+                        value: event.totalCommission,
+                        background: PayColors.goldLight,
+                        labelColor: PayColors.dayText,
+                        valueColor: PayColors.navyDeep,
+                        dense: true,
+                      )
+                    else
+                      PaymentAmountBox.row(event, dense: true),
                   ],
                 ),
               ),

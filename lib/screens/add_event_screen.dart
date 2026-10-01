@@ -298,6 +298,9 @@ class _AddEventScreenState extends State<AddEventScreen> {
         assignedMembers: widget.existing?.assignedMembers ?? const [],
         requiredMembers: widget.existing?.requiredMembers ?? 0,
         presentMemberIds: widget.existing?.presentMemberIds ?? const [],
+        commission: widget.existing?.commission ?? 0,
+        commissionType: widget.existing?.commissionType ?? CommissionType.total,
+        commissionPaid: widget.existing?.commissionPaid ?? false,
       );
 
       if (_isEditing) {
