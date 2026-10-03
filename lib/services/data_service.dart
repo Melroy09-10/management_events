@@ -695,10 +695,33 @@ class DataService {
     });
   }
 
+  Map<String, dynamic> _paidPayoutData({
+    required String eventId,
+    required String memberId,
+    required String memberName,
+    required double amount,
+    required double tip,
+    String? note,
+  }) => {
+    'eventId': eventId,
+    'memberId': memberId,
+    'memberName': memberName,
+    'amount': amount,
+    'tip': tip,
+    'status': PayoutStatus.paid.storageValue,
+    'paidAt': FieldValue.serverTimestamp(),
+    'note': ?note?.trim(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
+
   /// Marks exactly one payout — [memberId] for [eventId] — as Paid at the
   /// [amount] the Admin confirmed, stamping the payment time. Creates the
-  /// record if only the event's default amount existed. Fails if it's
-  /// already paid, so a payment can't be recorded twice.
+  /// record if only the event's default amount existed.
+  ///
+  /// A plain write rather than a transaction, so it lands in the local cache
+  /// (and on screen) instantly and syncs in the background — the returned
+  /// future completes once the server has it. The record id is fixed per
+  /// event + member, so repeating it can never create a duplicate payment.
   Future<void> markPayoutPaid({
     required String eventId,
     required String memberId,
@@ -710,26 +733,111 @@ class DataService {
     if (amount <= 0) {
       throw StateError('Set an amount before marking this paid.');
     }
-    final ref = _payoutsCollection.doc(payoutDocId(eventId, memberId));
-    return _firestore.runTransaction((tx) async {
-      final snap = await tx.get(ref);
-      final data = snap.data();
-      if (data != null &&
-          PayoutStatusX.fromStorage(data['status'] as String?) ==
-              PayoutStatus.paid) {
-        throw StateError('This payout is already marked paid.');
+    return _payoutsCollection
+        .doc(payoutDocId(eventId, memberId))
+        .set(
+          _paidPayoutData(
+            eventId: eventId,
+            memberId: memberId,
+            memberName: memberName,
+            amount: amount,
+            tip: tip,
+            note: note,
+          ),
+          SetOptions(merge: true),
+        );
+  }
+
+  /// "Mark All Paid" for one event: marks every listed payout of [eventId]
+  /// as Paid in one batch — all recorded or none, applied locally at once
+  /// (see [markPayoutPaid]). Only ids under [eventId] are written, so other
+  /// events' payouts are never touched.
+  Future<void> markEventPayoutsPaid(
+    String eventId,
+    List<({String memberId, String memberName, double amount, double tip})>
+    payouts,
+  ) {
+    final batch = _firestore.batch();
+    for (final p in payouts) {
+      if (p.amount <= 0) continue;
+      batch.set(
+        _payoutsCollection.doc(payoutDocId(eventId, p.memberId)),
+        _paidPayoutData(
+          eventId: eventId,
+          memberId: p.memberId,
+          memberName: p.memberName,
+          amount: p.amount,
+          tip: p.tip,
+        ),
+        SetOptions(merge: true),
+      );
+    }
+    return batch.commit();
+  }
+
+  /// Undoes Mark Paid / Mark All Paid: puts each payout back exactly as it
+  /// was before ([previous] is the record then, or null if there wasn't one
+  /// — in which case it's deleted so the event's default amount applies
+  /// again).
+  Future<void> restorePayouts(
+    List<({String eventId, String memberId, Payout? previous})> payouts,
+  ) {
+    final batch = _firestore.batch();
+    for (final p in payouts) {
+      final ref = _payoutsCollection.doc(payoutDocId(p.eventId, p.memberId));
+      final prev = p.previous;
+      if (prev == null) {
+        batch.delete(ref);
+        continue;
       }
-      tx.set(ref, {
-        'eventId': eventId,
-        'memberId': memberId,
-        'memberName': memberName,
-        'amount': amount,
-        'tip': tip,
-        'status': PayoutStatus.paid.storageValue,
-        'paidAt': FieldValue.serverTimestamp(),
-        'note': note.trim(),
+      batch.set(ref, {
+        'eventId': prev.eventId,
+        'memberId': prev.memberId,
+        'memberName': prev.memberName,
+        'amount': prev.amount ?? FieldValue.delete(),
+        'tip': prev.tip ?? FieldValue.delete(),
+        'status': prev.status.storageValue,
+        'paidAt': prev.paidAt == null
+            ? FieldValue.delete()
+            : Timestamp.fromDate(prev.paidAt!),
+        'note': prev.note,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+    }
+    return batch.commit();
+  }
+
+  /// Moves a paid payout back to Pending (a payment recorded by mistake),
+  /// keeping its amount. The recorded tip and payment time are cleared, so
+  /// it follows the event's current tip again.
+  Future<void> markPayoutUnpaid({
+    required String eventId,
+    required String memberId,
+  }) {
+    return _payoutsCollection.doc(payoutDocId(eventId, memberId)).update({
+      'status': PayoutStatus.pending.storageValue,
+      'paidAt': FieldValue.delete(),
+      'tip': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  /// "Mark All Unpaid" for one event: moves the listed paid payouts of
+  /// [eventId] back to Pending in one batch, like [markPayoutUnpaid] for
+  /// each. Other events' payouts are never touched.
+  Future<void> markEventPayoutsUnpaid(
+    String eventId,
+    Iterable<String> memberIds,
+  ) {
+    final batch = _firestore.batch();
+    for (final memberId in memberIds) {
+      batch.update(_payoutsCollection.doc(payoutDocId(eventId, memberId)), {
+        'status': PayoutStatus.pending.storageValue,
+        'paidAt': FieldValue.delete(),
+        'tip': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+    return batch.commit();
   }
 }

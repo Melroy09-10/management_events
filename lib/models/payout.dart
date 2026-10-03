@@ -118,27 +118,41 @@ class PayoutEntry {
 class PayoutTotals {
   final double paid;
   final double pending;
+  final int paidCount;
   final int pendingCount;
   final int unsetCount;
+
+  /// Tips included in [total] (paid tips as recorded, pending at the
+  /// event's current rate).
+  final double tips;
 
   const PayoutTotals({
     required this.paid,
     required this.pending,
+    required this.paidCount,
     required this.pendingCount,
     required this.unsetCount,
+    required this.tips,
   });
+
+  /// Pending payouts that have an amount and so can be marked paid.
+  int get payableCount => pendingCount - unsetCount;
 
   double get total => paid + pending;
 
   factory PayoutTotals.of(Iterable<PayoutEntry> entries) {
     var paid = 0.0;
     var pending = 0.0;
+    var paidCount = 0;
     var pendingCount = 0;
     var unsetCount = 0;
+    var tips = 0.0;
     for (final e in entries) {
       final amount = e.amount;
+      if (amount != null) tips += e.tip;
       if (e.isPaid) {
         paid += amount ?? 0;
+        paidCount++;
         continue;
       }
       pendingCount++;
@@ -151,8 +165,10 @@ class PayoutTotals {
     return PayoutTotals(
       paid: paid,
       pending: pending,
+      paidCount: paidCount,
       pendingCount: pendingCount,
       unsetCount: unsetCount,
+      tips: tips,
     );
   }
 }

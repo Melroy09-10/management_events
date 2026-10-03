@@ -126,5 +126,7 @@ void main() {
     expect(byId['c']!.amount, 1100);
     final totals = PayoutTotals.of(entries);
     expect((totals.paid, totals.pending, totals.total), (1050, 2400, 3450));
+    expect(totals.tips, 250); // 50 frozen on the paid one + 100 + 100
+    expect((totals.paidCount, totals.payableCount), (1, 2));
   });
 }

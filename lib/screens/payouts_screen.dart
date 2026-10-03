@@ -36,7 +36,6 @@ extension on _PayoutSort {
   };
 }
 
-final _paidAtFormat = DateFormat('dd MMM yyyy, h:mm a');
 final _shortDateFormat = DateFormat('dd MMM');
 final _numericDateFormat = DateFormat('dd/MM/yyyy');
 
@@ -194,19 +193,54 @@ class _PayoutsScreenState extends State<PayoutsScreen> {
 
   // --- Actions ---
 
-  void _showMessage(String message, {bool error = false}) {
+  void _showMessage(
+    String message, {
+    bool error = false,
+    VoidCallback? onUndo,
+  }) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
           content: Text(message),
           backgroundColor: error ? AppColors.danger : AppColors.success,
+          duration: Duration(seconds: onUndo == null ? 4 : 6),
+          // Auto-hide even with an action (Flutter keeps those by default).
+          persist: false,
+          action: onUndo == null
+              ? null
+              : SnackBarAction(
+                  label: 'UNDO',
+                  textColor: Colors.white,
+                  onPressed: onUndo,
+                ),
         ),
       );
   }
 
   String _errorText(Object e) =>
       e is StateError ? e.message : 'Something went wrong. Please try again.';
+
+  /// Reports a background write failing. Writes land in the local cache
+  /// (and on screen) straight away, so they're not awaited before showing
+  /// success — this only speaks up if the server rejects them.
+  void _reportFailure(Future<void> write) {
+    write.catchError((Object e) {
+      if (mounted) _showMessage(_errorText(e), error: true);
+    });
+  }
+
+  /// Puts [entries]' payout records back exactly as they were before they
+  /// were marked paid / unpaid.
+  void _restore(List<PayoutEntry> entries, String message) {
+    _reportFailure(
+      _dataService.restorePayouts([
+        for (final e in entries)
+          (eventId: e.event.id, memberId: e.memberId, previous: e.payout),
+      ]),
+    );
+    _showMessage(message);
+  }
 
   Future<void> _setAmount(PayoutEntry entry) async {
     final amount = await showDialog<double>(
@@ -238,21 +272,150 @@ class _PayoutsScreenState extends State<PayoutsScreen> {
     );
     if (note == null || !mounted) return;
     try {
-      await _dataService.markPayoutPaid(
-        eventId: entry.event.id,
-        memberId: entry.memberId,
-        memberName: entry.memberName,
-        amount: entry.baseAmount!,
-        tip: entry.tip,
-        note: note,
-      );
-      if (!mounted) return;
-      _showMessage(
-        '${formatCurrency(entry.amount!)} marked paid to ${entry.memberName}',
+      _reportFailure(
+        _dataService.markPayoutPaid(
+          eventId: entry.event.id,
+          memberId: entry.memberId,
+          memberName: entry.memberName,
+          amount: entry.baseAmount!,
+          tip: entry.tip,
+          note: note,
+        ),
       );
     } catch (e) {
-      if (mounted) _showMessage(_errorText(e), error: true);
+      _showMessage(_errorText(e), error: true);
+      return;
     }
+    _showMessage(
+      '${formatCurrency(entry.amount!)} marked paid to ${entry.memberName}',
+      onUndo: () => _restore([entry], 'Payment to ${entry.memberName} undone'),
+    );
+  }
+
+  /// Marks every pending payout of [group]'s event that has an amount as
+  /// Paid, after confirmation, in one batch. Never touches other events.
+  /// Undo puts every one of them back as it was.
+  Future<void> _markAllPaid(_EventGroup group) async {
+    final payable = [
+      for (final e in group.entries)
+        if (!e.isPaid && e.hasAmount) e,
+    ];
+    if (payable.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => _MarkAllPaidDialog(
+        event: group.event,
+        entries: payable,
+        skipped: group.totals.unsetCount,
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    _reportFailure(
+      _dataService.markEventPayoutsPaid(group.event.id, [
+        for (final e in payable)
+          (
+            memberId: e.memberId,
+            memberName: e.memberName,
+            amount: e.baseAmount!,
+            tip: e.tip,
+          ),
+      ]),
+    );
+    final count = payable.length;
+    _showMessage(
+      '$count payment${count == 1 ? '' : 's'} marked paid for '
+      '${group.event.eventName}',
+      onUndo: () => _restore(
+        payable,
+        'Undone — $count payment${count == 1 ? '' : 's'} back to pending',
+      ),
+    );
+  }
+
+  /// Moves every paid payout of a fully settled event back to Pending,
+  /// after confirmation (with Undo). Never touches other events.
+  Future<void> _markAllUnpaid(_EventGroup group) async {
+    final paid = [
+      for (final e in group.entries)
+        if (e.isPaid) e,
+    ];
+    if (paid.isEmpty) return;
+    final count = paid.length;
+    final total = paid.fold<double>(0, (acc, e) => acc + (e.amount ?? 0));
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Mark All Unpaid?'),
+        content: Text(
+          '$count payment${count == 1 ? '' : 's'} (${formatCurrency(total)}) '
+          'for ${group.event.eventName} will move back to Pending.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            child: Text('Mark $count Unpaid'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    _reportFailure(
+      _dataService.markEventPayoutsUnpaid(group.event.id, [
+        for (final e in paid) e.memberId,
+      ]),
+    );
+    _showMessage(
+      '$count payment${count == 1 ? '' : 's'} moved back to Pending',
+      onUndo: () => _restore(
+        paid,
+        '$count payment${count == 1 ? '' : 's'} restored as paid',
+      ),
+    );
+  }
+
+  /// Moves a payment recorded by mistake back to Pending, after
+  /// confirmation (with Undo).
+  Future<void> _markUnpaid(PayoutEntry entry) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Mark as Unpaid?'),
+        content: Text(
+          'The ${formatCurrency(entry.amount!)} payment to '
+          '${entry.memberName} for ${entry.event.eventName} will move back '
+          'to Pending.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            child: const Text('Mark Unpaid'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    _reportFailure(
+      _dataService.markPayoutUnpaid(
+        eventId: entry.event.id,
+        memberId: entry.memberId,
+      ),
+    );
+    _showMessage(
+      'Payment to ${entry.memberName} moved back to Pending',
+      onUndo: () =>
+          _restore([entry], 'Payment to ${entry.memberName} restored'),
+    );
   }
 
   Future<void> _editTip(_EventGroup group) async {
@@ -277,18 +440,12 @@ class _PayoutsScreenState extends State<PayoutsScreen> {
     }
   }
 
-  void _view(PayoutEntry entry) {
-    showDialog<void>(
-      context: context,
-      builder: (_) => _ViewPaymentDialog(entry: entry),
-    );
-  }
-
   // --- Build ---
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: _isDark(context) ? null : _P.ivory,
       drawer: const AppDrawer(),
       appBar: AppBar(title: const Text('Payouts')),
       body: SafeArea(
@@ -405,9 +562,11 @@ class _PayoutsScreenState extends State<PayoutsScreen> {
                   }
                 }),
                 onMarkPaid: _markPaid,
-                onView: _view,
+                onMarkUnpaid: _markUnpaid,
                 onSetAmount: _setAmount,
                 onEditTip: () => _editTip(g),
+                onMarkAllPaid: () => _markAllPaid(g),
+                onMarkAllUnpaid: () => _markAllUnpaid(g),
               ),
               const SizedBox(height: 10),
             ]
@@ -422,7 +581,7 @@ class _PayoutsScreenState extends State<PayoutsScreen> {
                   }
                 }),
                 onMarkPaid: _markPaid,
-                onView: _view,
+                onMarkUnpaid: _markUnpaid,
                 onSetAmount: _setAmount,
               ),
               const SizedBox(height: 10),
@@ -435,6 +594,19 @@ class _PayoutsScreenState extends State<PayoutsScreen> {
 
 // --- Shared styling helpers ---
 
+/// The Payouts page's Royal Navy / Gold / Ivory palette.
+class _P {
+  _P._();
+
+  static const Color navyDeep = Color(0xFF04121F);
+  static const Color navy = Color(0xFF071D33);
+  static const Color navyLight = Color(0xFF0F2C4B);
+  static const Color gold = Color(0xFFD8AD45);
+  static const Color goldDark = Color(0xFFA9832A);
+  static const Color goldLight = Color(0xFFEFD48C);
+  static const Color ivory = Color(0xFFF8F6EF);
+}
+
 bool _isDark(BuildContext context) =>
     Theme.of(context).brightness == Brightness.dark;
 
@@ -445,8 +617,7 @@ Color _secondaryText(BuildContext context) => _isDark(context)
     ? AppColors.textSecondaryDark
     : AppColors.textSecondaryLight;
 
-Color _navy(BuildContext context) =>
-    onSurfaceAccent(context, AppColors.primary);
+Color _navy(BuildContext context) => onSurfaceAccent(context, _P.navy);
 
 BoxDecoration _cardDecoration(BuildContext context) => BoxDecoration(
   color: Theme.of(context).colorScheme.surface,
@@ -454,7 +625,7 @@ BoxDecoration _cardDecoration(BuildContext context) => BoxDecoration(
   border: Border.all(color: _borderColor(context)),
   boxShadow: [
     BoxShadow(
-      color: AppColors.primary.withValues(alpha: 0.05),
+      color: _P.navy.withValues(alpha: 0.05),
       blurRadius: 10,
       offset: const Offset(0, 3),
     ),
@@ -491,10 +662,10 @@ class _ModeToggle extends StatelessWidget {
             duration: const Duration(milliseconds: 180),
             padding: const EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(
-              color: selected ? AppColors.primary : Colors.transparent,
+              color: selected ? _P.navy : Colors.transparent,
               borderRadius: BorderRadius.circular(10),
               border: selected
-                  ? Border.all(color: AppColors.gold.withValues(alpha: 0.7))
+                  ? Border.all(color: _P.gold.withValues(alpha: 0.7))
                   : null,
             ),
             child: Row(
@@ -503,7 +674,7 @@ class _ModeToggle extends StatelessWidget {
                 Icon(
                   icon,
                   size: 17,
-                  color: selected ? AppColors.gold : _secondaryText(context),
+                  color: selected ? _P.gold : _secondaryText(context),
                 ),
                 const SizedBox(width: 6),
                 Text(
@@ -708,13 +879,9 @@ class _FilterPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected
-          ? AppColors.primary
-          : Theme.of(context).colorScheme.surface,
+      color: selected ? _P.navy : Theme.of(context).colorScheme.surface,
       shape: StadiumBorder(
-        side: BorderSide(
-          color: selected ? AppColors.primary : _borderColor(context),
-        ),
+        side: BorderSide(color: selected ? _P.navy : _borderColor(context)),
       ),
       child: InkWell(
         customBorder: const StadiumBorder(),
@@ -752,7 +919,7 @@ class _MessageState extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
       child: Column(
         children: [
-          Icon(icon, size: 44, color: AppColors.gold),
+          Icon(icon, size: 44, color: _P.gold),
           const SizedBox(height: 10),
           Text(title, style: AppTextStyles.cardTitle),
           const SizedBox(height: 4),
@@ -780,80 +947,28 @@ class _StatusChip extends StatelessWidget {
       fit: BoxFit.scaleDown,
       alignment: Alignment.centerLeft,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: color.withValues(alpha: 0.3)),
         ),
-        child: Text(
-          paid ? 'Paid' : 'Pending',
-          style: TextStyle(
-            color: color,
-            fontWeight: FontWeight.w700,
-            fontSize: 11,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Tappable amount; shows "Not set" when no amount is recorded. Pending
-/// amounts can be edited by tapping, paid ones are locked.
-class _AmountCell extends StatelessWidget {
-  final PayoutEntry entry;
-  final VoidCallback onEdit;
-  const _AmountCell({required this.entry, required this.onEdit});
-
-  @override
-  Widget build(BuildContext context) {
-    final amount = entry.amount;
-    final total = Text(
-      amount == null ? 'Not set' : formatCurrency(amount),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: TextStyle(
-        fontSize: 13,
-        fontWeight: amount == null ? FontWeight.w600 : FontWeight.w700,
-        fontStyle: amount == null ? FontStyle.italic : FontStyle.normal,
-        color: amount == null ? AppColors.warning : null,
-      ),
-    );
-    final Widget text = amount == null || entry.tip <= 0
-        ? total
-        : Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              total,
-              Text(
-                'incl. ${formatCurrency(entry.tip)} tip',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.success,
-                ),
-              ),
-            ],
-          );
-    if (entry.isPaid) return text;
-    return InkWell(
-      onTap: onEdit,
-      borderRadius: BorderRadius.circular(6),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Flexible(child: text),
-            const SizedBox(width: 3),
             Icon(
-              Icons.edit_rounded,
+              paid ? Icons.check_circle_rounded : Icons.schedule_rounded,
               size: 12,
-              color: _secondaryText(context).withValues(alpha: 0.7),
+              color: color,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              paid ? 'Paid' : 'Pending',
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w700,
+                fontSize: 11,
+              ),
             ),
           ],
         ),
@@ -862,20 +977,87 @@ class _AmountCell extends StatelessWidget {
   }
 }
 
+/// The amount payable (base + tip) with the tip spelled out beneath it, or
+/// "Not set". Pending amounts can be edited by tapping, paid ones are
+/// locked.
+class _AmountCell extends StatelessWidget {
+  final PayoutEntry entry;
+  final VoidCallback onEdit;
+  const _AmountCell({required this.entry, required this.onEdit});
+
+  @override
+  Widget build(BuildContext context) {
+    final amount = entry.amount;
+    final tip = entry.tip;
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                amount == null ? 'Not set' : formatCurrency(amount),
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: amount == null
+                      ? FontWeight.w600
+                      : FontWeight.w800,
+                  fontStyle: amount == null
+                      ? FontStyle.italic
+                      : FontStyle.normal,
+                  color: amount == null ? AppColors.warning : null,
+                ),
+              ),
+            ),
+            if (!entry.isPaid) ...[
+              const SizedBox(width: 3),
+              Icon(
+                Icons.edit_rounded,
+                size: 11,
+                color: _secondaryText(context).withValues(alpha: 0.7),
+              ),
+            ],
+          ],
+        ),
+        if (amount != null && tip > 0)
+          Text(
+            '${formatCurrency(entry.baseAmount!)} + ${formatCurrency(tip)} tip',
+            style: const TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              color: AppColors.success,
+            ),
+          ),
+      ],
+    );
+    if (entry.isPaid) return content;
+    return InkWell(
+      onTap: onEdit,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: content,
+      ),
+    );
+  }
+}
+
 class _ActionButton extends StatelessWidget {
   final PayoutEntry entry;
   final ValueChanged<PayoutEntry> onMarkPaid;
-  final ValueChanged<PayoutEntry> onView;
+  final ValueChanged<PayoutEntry> onMarkUnpaid;
   final ValueChanged<PayoutEntry> onSetAmount;
 
   const _ActionButton({
     required this.entry,
     required this.onMarkPaid,
-    required this.onView,
+    required this.onMarkUnpaid,
     required this.onSetAmount,
   });
 
-  static const double width = 90;
+  static const double width = 86;
 
   @override
   Widget build(BuildContext context) {
@@ -887,16 +1069,16 @@ class _ActionButton extends StatelessWidget {
     final Widget button;
     if (entry.isPaid) {
       button = OutlinedButton(
-        onPressed: () => onView(entry),
+        onPressed: () => onMarkUnpaid(entry),
         style: OutlinedButton.styleFrom(
           padding: padding,
           minimumSize: const Size(0, 32),
           shape: shape,
-          foregroundColor: _navy(context),
-          side: BorderSide(color: _borderColor(context)),
+          foregroundColor: AppColors.danger,
+          side: BorderSide(color: AppColors.danger.withValues(alpha: 0.35)),
           textStyle: textStyle,
         ),
-        child: const Text('View'),
+        child: const Text('Unpaid'),
       );
     } else if (!entry.hasAmount) {
       button = OutlinedButton(
@@ -918,7 +1100,7 @@ class _ActionButton extends StatelessWidget {
           padding: padding,
           minimumSize: const Size(0, 32),
           shape: shape,
-          backgroundColor: AppColors.primary,
+          backgroundColor: _P.navy,
           foregroundColor: Colors.white,
           textStyle: textStyle,
         ),
@@ -932,6 +1114,8 @@ class _ActionButton extends StatelessWidget {
   }
 }
 
+/// Column headings over a member list; [columns] are (label, flex) pairs,
+/// followed by a fixed-width ACTION column matching [_ActionButton.width].
 class _TableHeader extends StatelessWidget {
   final List<(String, int)> columns;
   const _TableHeader({required this.columns});
@@ -939,37 +1123,51 @@ class _TableHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = TextStyle(
-      fontSize: 11,
+      fontSize: 10.5,
       fontWeight: FontWeight.w800,
-      letterSpacing: 0.4,
+      letterSpacing: 0.6,
       color: _secondaryText(context),
     );
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: AppColors.gold.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          for (final (label, flex) in columns)
-            Expanded(
-              flex: flex,
-              child: Text(label.toUpperCase(), style: style),
-            ),
-          SizedBox(
-            width: _ActionButton.width,
-            child: Text('ACTION', style: style, textAlign: TextAlign.center),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Matches [_BorderedPayoutRow]: when rows stack, the first column
+        // (the name) sits on its own line, so its label joins the next one.
+        final cols =
+            constraints.maxWidth < _stackRowsBelow && columns.length > 1
+            ? [
+                ('${columns[0].$1} / ${columns[1].$1}', columns[1].$2),
+                ...columns.skip(2),
+              ]
+            : columns;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
+          child: Row(
+            children: [
+              for (final (label, flex) in cols)
+                Expanded(
+                  flex: flex,
+                  child: Text(label.toUpperCase(), style: style),
+                ),
+              SizedBox(
+                width: _ActionButton.width,
+                child: Text(
+                  'ACTION',
+                  style: style,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
 
 class _ExpandChevron extends StatelessWidget {
   final bool expanded;
-  const _ExpandChevron({required this.expanded});
+  final bool onNavy;
+  const _ExpandChevron({required this.expanded, this.onNavy = false});
 
   @override
   Widget build(BuildContext context) {
@@ -980,13 +1178,18 @@ class _ExpandChevron extends StatelessWidget {
         width: 28,
         height: 28,
         decoration: BoxDecoration(
-          color: AppColors.primary.withValues(alpha: 0.06),
+          color: onNavy
+              ? _P.gold.withValues(alpha: 0.16)
+              : _P.navy.withValues(alpha: 0.06),
           shape: BoxShape.circle,
+          border: onNavy
+              ? Border.all(color: _P.gold.withValues(alpha: 0.5))
+              : null,
         ),
         child: Icon(
           Icons.keyboard_arrow_down_rounded,
           size: 20,
-          color: _navy(context),
+          color: onNavy ? _P.gold : _navy(context),
         ),
       ),
     );
@@ -995,17 +1198,21 @@ class _ExpandChevron extends StatelessWidget {
 
 class _CountBadge extends StatelessWidget {
   final PayoutTotals totals;
-  const _CountBadge({required this.totals});
+  final bool onNavy;
+  const _CountBadge({required this.totals, this.onNavy = false});
 
   @override
   Widget build(BuildContext context) {
     final allPaid = totals.pendingCount == 0;
-    final color = allPaid ? AppColors.success : AppColors.danger;
+    final color = allPaid
+        ? (onNavy ? const Color(0xFF6FD3A6) : AppColors.success)
+        : (onNavy ? const Color(0xFFFF8A80) : AppColors.danger);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
+        color: color.withValues(alpha: onNavy ? 0.16 : 0.1),
         borderRadius: BorderRadius.circular(20),
+        border: onNavy ? Border.all(color: color.withValues(alpha: 0.4)) : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1030,6 +1237,7 @@ class _CountBadge extends StatelessWidget {
   }
 }
 
+/// Plain Total / Paid / Pending footer, used on By Member cards.
 class _FooterTotals extends StatelessWidget {
   final PayoutTotals totals;
   final String totalLabel;
@@ -1092,6 +1300,107 @@ class _FooterTotals extends StatelessWidget {
   }
 }
 
+/// One member's payout inside a single bordered row: avatar + full name,
+/// amount (tip beneath), status and action — the border wraps all of it.
+class _BorderedPayoutRow extends StatelessWidget {
+  final Widget leading;
+  final int leadingFlex;
+  final List<(Widget, int)> middle;
+  final Widget action;
+  final bool paid;
+
+  const _BorderedPayoutRow({
+    required this.leading,
+    required this.leadingFlex,
+    required this.middle,
+    required this.action,
+    required this.paid,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: paid
+            ? AppColors.success.withValues(
+                alpha: _isDark(context) ? 0.08 : 0.04,
+              )
+            : Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: paid
+              ? AppColors.success.withValues(alpha: 0.25)
+              : _P.gold.withValues(alpha: 0.35),
+        ),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final cells = [
+            for (final (child, flex) in middle)
+              Expanded(
+                flex: flex,
+                child: Align(alignment: Alignment.centerLeft, child: child),
+              ),
+            action,
+          ];
+          // Too narrow for one line: the name gets the full width on top,
+          // the cells sit beneath it — still inside the same border.
+          if (constraints.maxWidth + 20 < _stackRowsBelow) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                leading,
+                const SizedBox(height: 8),
+                Row(children: cells),
+              ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(flex: leadingFlex, child: leading),
+              ...cells,
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Below this width a member list switches to stacked rows (see
+/// [_BorderedPayoutRow]) so names never get squeezed.
+const double _stackRowsBelow = 440;
+
+class _Avatar extends StatelessWidget {
+  final String name;
+  final double size;
+  const _Avatar({required this.name, this.size = 30});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: _P.navy,
+        border: Border.all(color: _P.gold, width: 1.2),
+      ),
+      child: Text(
+        _initials(name),
+        style: TextStyle(
+          color: _P.gold,
+          fontWeight: FontWeight.w800,
+          fontSize: size * 0.36,
+        ),
+      ),
+    );
+  }
+}
+
 // --- By Function ---
 
 class _EventPayoutCard extends StatelessWidget {
@@ -1099,29 +1408,42 @@ class _EventPayoutCard extends StatelessWidget {
   final bool expanded;
   final VoidCallback onToggle;
   final ValueChanged<PayoutEntry> onMarkPaid;
-  final ValueChanged<PayoutEntry> onView;
+  final ValueChanged<PayoutEntry> onMarkUnpaid;
   final ValueChanged<PayoutEntry> onSetAmount;
+  final VoidCallback onEditTip;
+  final VoidCallback onMarkAllPaid;
+  final VoidCallback onMarkAllUnpaid;
 
   const _EventPayoutCard({
     required this.group,
     required this.expanded,
     required this.onToggle,
     required this.onMarkPaid,
-    required this.onView,
+    required this.onMarkUnpaid,
     required this.onSetAmount,
     required this.onEditTip,
+    required this.onMarkAllPaid,
+    required this.onMarkAllUnpaid,
   });
-
-  final VoidCallback onEditTip;
 
   @override
   Widget build(BuildContext context) {
-    final event = group.event;
-    final assigned = group.entries.where((e) => e.stillAssigned).length;
+    final totals = group.totals;
     final radius = BorderRadius.circular(AppRadius.card);
 
     return Container(
-      decoration: _cardDecoration(context),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: radius,
+        border: Border.all(color: _P.gold.withValues(alpha: 0.45)),
+        boxShadow: [
+          BoxShadow(
+            color: _P.navy.withValues(alpha: 0.08),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
       child: Material(
         color: Colors.transparent,
         borderRadius: radius,
@@ -1129,129 +1451,37 @@ class _EventPayoutCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            InkWell(
-              onTap: onToggle,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(11),
-                      ),
-                      child: const Icon(
-                        Icons.celebration_rounded,
-                        color: AppColors.gold,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            event.eventName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTextStyles.cardTitle.copyWith(
-                              fontSize: 15,
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 5,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.calendar_today_rounded,
-                                    size: 12,
-                                    color: _secondaryText(context),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    formatEventDate(event.date),
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: _secondaryText(context),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              ShiftBadge(shift: event.shift),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.people_alt_rounded,
-                                    size: 13,
-                                    color: _secondaryText(context),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '$assigned member${assigned == 1 ? '' : 's'}',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: _secondaryText(context),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              _CountBadge(totals: group.totals),
-                              if (event.memberTipPerHead > 0)
-                                _TipBadge(tip: event.memberTipPerHead),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          formatCurrency(group.totals.total),
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: _navy(context),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        _ExpandChevron(expanded: expanded),
-                      ],
-                    ),
-                  ],
-                ),
+            _EventHeader(group: group, expanded: expanded, onTap: onToggle),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              child: _TipRow(
+                tip: group.event.memberTipPerHead,
+                onEdit: onEditTip,
               ),
             ),
             AnimatedSize(
-              duration: const Duration(milliseconds: 200),
+              duration: const Duration(milliseconds: 220),
               curve: Curves.easeOut,
               alignment: Alignment.topCenter,
               child: !expanded
-                  ? const SizedBox(width: double.infinity)
+                  ? const SizedBox(width: double.infinity, height: 12)
                   : Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          _TipRow(
-                            tip: event.memberTipPerHead,
-                            onEdit: onEditTip,
+                          _EventSummaryGrid(totals: totals),
+                          const SizedBox(height: 12),
+                          _MarkAllPaidButton(
+                            totals: totals,
+                            onPressed: onMarkAllPaid,
+                            onMarkAllUnpaid: onMarkAllUnpaid,
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 12),
                           const _TableHeader(
                             columns: [
-                              ('Member', 4),
-                              ('Amount', 3),
+                              ('Member', 5),
+                              ('Amount', 4),
                               ('Status', 3),
                             ],
                           ),
@@ -1259,13 +1489,11 @@ class _EventPayoutCard extends StatelessWidget {
                             _EventMemberRow(
                               entry: entry,
                               onMarkPaid: onMarkPaid,
-                              onView: onView,
+                              onMarkUnpaid: onMarkUnpaid,
                               onSetAmount: onSetAmount,
                             ),
-                          _FooterTotals(
-                            totals: group.totals,
-                            totalLabel: 'Event Total',
-                          ),
+                          const SizedBox(height: 4),
+                          _EventBottomSummary(totals: totals),
                         ],
                       ),
                     ),
@@ -1277,43 +1505,129 @@ class _EventPayoutCard extends StatelessWidget {
   }
 }
 
-class _TipBadge extends StatelessWidget {
-  final double tip;
-  const _TipBadge({required this.tip});
+/// The navy header of an event card: name, date, shift, members, pending
+/// count, total payout and the expand control.
+class _EventHeader extends StatelessWidget {
+  final _EventGroup group;
+  final bool expanded;
+  final VoidCallback onTap;
+
+  const _EventHeader({
+    required this.group,
+    required this.expanded,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: AppColors.gold.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.card_giftcard_rounded,
-            size: 12,
-            color: AppColors.goldDark,
+    final event = group.event;
+    final members = group.entries.where((e) => e.stillAssigned).length;
+    final muted = Colors.white.withValues(alpha: 0.72);
+    final isDay = event.shift == Shift.day;
+
+    Widget meta(IconData icon, String text) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12.5, color: _P.gold),
+        const SizedBox(width: 4),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 12,
+            color: muted,
+            fontWeight: FontWeight.w600,
           ),
-          const SizedBox(width: 4),
-          Text(
-            '${formatCurrency(tip)} tip/head',
-            style: const TextStyle(
-              color: AppColors.goldDark,
-              fontWeight: FontWeight.w700,
-              fontSize: 11,
+        ),
+      ],
+    );
+
+    return InkWell(
+      onTap: onTap,
+      child: Ink(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [_P.navyDeep, _P.navy, _P.navyLight],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          border: Border(bottom: BorderSide(color: _P.gold, width: 1.2)),
+        ),
+        padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    event.eventName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.1,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      meta(
+                        Icons.calendar_today_rounded,
+                        formatEventDate(event.date),
+                      ),
+                      meta(
+                        isDay ? Icons.wb_sunny_rounded : Icons.nightlight_round,
+                        event.shift.label,
+                      ),
+                      meta(
+                        Icons.people_alt_rounded,
+                        '$members member${members == 1 ? '' : 's'}',
+                      ),
+                      _CountBadge(totals: group.totals, onNavy: true),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  'TOTAL PAYOUT',
+                  style: TextStyle(
+                    fontSize: 9.5,
+                    letterSpacing: 0.8,
+                    fontWeight: FontWeight.w700,
+                    color: muted,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  formatCurrency(group.totals.total),
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: _P.gold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _ExpandChevron(expanded: expanded, onNavy: true),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-/// "Tips per member" line at the top of an expanded event card, with an
-/// Add / Edit button.
+/// "Tips per member" line below an event's header, with an Add / Edit
+/// button.
 class _TipRow extends StatelessWidget {
   final double tip;
   final VoidCallback onEdit;
@@ -1325,23 +1639,30 @@ class _TipRow extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(10, 4, 4, 4),
       decoration: BoxDecoration(
-        color: AppColors.gold.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.gold.withValues(alpha: 0.3)),
+        color: _P.gold.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _P.gold.withValues(alpha: 0.4)),
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.card_giftcard_rounded,
-            size: 16,
-            color: AppColors.goldDark,
-          ),
+          const Icon(Icons.card_giftcard_rounded, size: 17, color: _P.goldDark),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
+            child: Text.rich(
               hasTip
-                  ? 'Tips: ${formatCurrency(tip)} per member'
-                  : 'No tips added',
+                  ? TextSpan(
+                      children: [
+                        const TextSpan(text: 'Tip per member  '),
+                        TextSpan(
+                          text: formatCurrency(tip),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: _P.goldDark,
+                          ),
+                        ),
+                      ],
+                    )
+                  : const TextSpan(text: 'No tip added'),
               style: TextStyle(
                 fontSize: 12.5,
                 fontWeight: FontWeight.w600,
@@ -1353,9 +1674,9 @@ class _TipRow extends StatelessWidget {
             onPressed: onEdit,
             icon: Icon(
               hasTip ? Icons.edit_rounded : Icons.add_rounded,
-              size: 16,
+              size: 15,
             ),
-            label: Text(hasTip ? 'Edit' : 'Add Tips'),
+            label: Text(hasTip ? 'Edit' : 'Add Tip'),
             style: TextButton.styleFrom(
               foregroundColor: _navy(context),
               visualDensity: VisualDensity.compact,
@@ -1371,44 +1692,281 @@ class _TipRow extends StatelessWidget {
   }
 }
 
-class _EventMemberRow extends StatelessWidget {
-  final PayoutEntry entry;
-  final ValueChanged<PayoutEntry> onMarkPaid;
-  final ValueChanged<PayoutEntry> onView;
-  final ValueChanged<PayoutEntry> onSetAmount;
+/// Total Amount / Total Tips / Paid / Pending tiles for one event — four
+/// across on wide cards, a 2×2 grid on phones.
+class _EventSummaryGrid extends StatelessWidget {
+  final PayoutTotals totals;
+  const _EventSummaryGrid({required this.totals});
 
-  const _EventMemberRow({
-    required this.entry,
-    required this.onMarkPaid,
-    required this.onView,
-    required this.onSetAmount,
+  @override
+  Widget build(BuildContext context) {
+    final tiles = [
+      _SummaryTile(
+        icon: Icons.account_balance_wallet_rounded,
+        label: 'Total Amount',
+        amount: totals.total,
+        color: _navy(context),
+      ),
+      _SummaryTile(
+        icon: Icons.card_giftcard_rounded,
+        label: 'Total Tips',
+        amount: totals.tips,
+        color: _P.goldDark,
+      ),
+      _SummaryTile(
+        icon: Icons.check_circle_rounded,
+        label: 'Paid Amount',
+        amount: totals.paid,
+        color: AppColors.success,
+      ),
+      _SummaryTile(
+        icon: Icons.schedule_rounded,
+        label: 'Pending Amount',
+        amount: totals.pending,
+        color: AppColors.danger,
+      ),
+    ];
+    const gap = 8.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final perRow = constraints.maxWidth >= 520 ? 4 : 2;
+        final width = (constraints.maxWidth - gap * (perRow - 1)) / perRow;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [for (final t in tiles) SizedBox(width: width, child: t)],
+        );
+      },
+    );
+  }
+}
+
+class _SummaryTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final double amount;
+  final Color color;
+
+  const _SummaryTile({
+    required this.icon,
+    required this.label,
+    required this.amount,
+    required this.color,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
       decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: _borderColor(context).withValues(alpha: 0.6),
+        color: _isDark(context)
+            ? Theme.of(context).colorScheme.surface
+            : _P.ivory,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _P.gold.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: _secondaryText(context),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              formatCurrency(amount),
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Gold "Mark All Paid" for one event. Disabled (with the reason) when
+/// nothing payable is pending.
+class _MarkAllPaidButton extends StatelessWidget {
+  final PayoutTotals totals;
+  final VoidCallback onPressed;
+
+  /// Offered next to "All payments settled" to reverse the whole event.
+  final VoidCallback onMarkAllUnpaid;
+
+  const _MarkAllPaidButton({
+    required this.totals,
+    required this.onPressed,
+    required this.onMarkAllUnpaid,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final payable = totals.payableCount;
+    final enabled = payable > 0;
+    final String label;
+    if (totals.pendingCount == 0) {
+      label = 'All payments settled';
+    } else if (payable == 0) {
+      label = 'Set amounts to mark paid';
+    } else {
+      label = 'Mark All Paid ($payable)';
+    }
+
+    final bar = SizedBox(
+      height: 46,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: enabled
+              ? const LinearGradient(
+                  colors: [_P.goldDark, _P.gold, _P.goldLight],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
+          color: enabled ? null : _P.gold.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: enabled
+              ? [
+                  BoxShadow(
+                    color: _P.gold.withValues(alpha: 0.35),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: enabled ? onPressed : null,
+            borderRadius: BorderRadius.circular(12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  totals.pendingCount == 0
+                      ? Icons.verified_rounded
+                      : Icons.done_all_rounded,
+                  size: 19,
+                  color: enabled ? _P.navy : _P.goldDark,
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: enabled ? _P.navy : _P.goldDark,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
-      child: Row(
+    );
+
+    if (totals.pendingCount > 0 || totals.paidCount == 0) return bar;
+    final unpaidButton = SizedBox(
+      height: 46,
+      child: OutlinedButton.icon(
+        onPressed: onMarkAllUnpaid,
+        icon: const Icon(Icons.undo_rounded, size: 17),
+        label: const Text('Mark All Unpaid'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.danger,
+          side: BorderSide(color: AppColors.danger.withValues(alpha: 0.4)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          // The app theme makes outlined buttons full-width, which a
+          // Row can't lay out.
+          minimumSize: const Size(0, 46),
+          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+        ),
+      ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Side by side when there's room; stacked on narrow phones.
+        if (constraints.maxWidth < 420) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [bar, const SizedBox(height: 8), unpaidButton],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: bar),
+            const SizedBox(width: 8),
+            unpaidButton,
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _EventMemberRow extends StatelessWidget {
+  final PayoutEntry entry;
+  final ValueChanged<PayoutEntry> onMarkPaid;
+  final ValueChanged<PayoutEntry> onMarkUnpaid;
+  final ValueChanged<PayoutEntry> onSetAmount;
+
+  const _EventMemberRow({
+    required this.entry,
+    required this.onMarkPaid,
+    required this.onMarkUnpaid,
+    required this.onSetAmount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _BorderedPayoutRow(
+      paid: entry.isPaid,
+      leadingFlex: 5,
+      leading: Row(
         children: [
+          _Avatar(name: entry.memberName),
+          const SizedBox(width: 8),
           Expanded(
-            flex: 4,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Full name — wraps instead of being cut off.
                 Text(
                   entry.memberName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  softWrap: true,
                   style: const TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
+                    height: 1.2,
                   ),
                 ),
                 if (!entry.stillAssigned)
@@ -1422,22 +1980,104 @@ class _EventMemberRow extends StatelessWidget {
               ],
             ),
           ),
-          Expanded(
-            flex: 3,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: _AmountCell(
-                entry: entry,
-                onEdit: () => onSetAmount(entry),
+          const SizedBox(width: 6),
+        ],
+      ),
+      middle: [
+        (_AmountCell(entry: entry, onEdit: () => onSetAmount(entry)), 4),
+        (_StatusChip(paid: entry.isPaid), 3),
+      ],
+      action: _ActionButton(
+        entry: entry,
+        onMarkPaid: onMarkPaid,
+        onMarkUnpaid: onMarkUnpaid,
+        onSetAmount: onSetAmount,
+      ),
+    );
+  }
+}
+
+/// Navy-and-gold Total / Paid / Pending panel closing an expanded event
+/// card, three even, centered sections.
+class _EventBottomSummary extends StatelessWidget {
+  final PayoutTotals totals;
+  const _EventBottomSummary({required this.totals});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget section(String label, double amount, String? caption, Color color) {
+      return Expanded(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label.toUpperCase(),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 9.5,
+                letterSpacing: 0.7,
+                fontWeight: FontWeight.w700,
+                color: Colors.white.withValues(alpha: 0.7),
               ),
             ),
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                formatCurrency(amount),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                ),
+              ),
+            ),
+            if (caption != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                caption,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  color: Colors.white.withValues(alpha: 0.65),
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    Widget divider() =>
+        Container(width: 1, height: 38, color: _P.gold.withValues(alpha: 0.35));
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [_P.navyDeep, _P.navy],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _P.gold.withValues(alpha: 0.7)),
+      ),
+      child: Row(
+        children: [
+          section('Total Amount', totals.total, null, _P.gold),
+          divider(),
+          section(
+            'Paid',
+            totals.paid,
+            '${totals.paidCount} paid',
+            const Color(0xFF6FD3A6),
           ),
-          Expanded(flex: 3, child: _StatusChip(paid: entry.isPaid)),
-          _ActionButton(
-            entry: entry,
-            onMarkPaid: onMarkPaid,
-            onView: onView,
-            onSetAmount: onSetAmount,
+          divider(),
+          section(
+            'Pending',
+            totals.pending,
+            '${totals.pendingCount} pending',
+            const Color(0xFFFF8A80),
           ),
         ],
       ),
@@ -1452,7 +2092,7 @@ class _MemberPayoutCard extends StatelessWidget {
   final bool expanded;
   final VoidCallback onToggle;
   final ValueChanged<PayoutEntry> onMarkPaid;
-  final ValueChanged<PayoutEntry> onView;
+  final ValueChanged<PayoutEntry> onMarkUnpaid;
   final ValueChanged<PayoutEntry> onSetAmount;
 
   const _MemberPayoutCard({
@@ -1460,7 +2100,7 @@ class _MemberPayoutCard extends StatelessWidget {
     required this.expanded,
     required this.onToggle,
     required this.onMarkPaid,
-    required this.onView,
+    required this.onMarkUnpaid,
     required this.onSetAmount,
   });
 
@@ -1512,24 +2152,7 @@ class _MemberPayoutCard extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: AppColors.primary,
-                            border: Border.all(color: AppColors.gold),
-                          ),
-                          child: Text(
-                            _initials(group.memberName),
-                            style: const TextStyle(
-                              color: AppColors.gold,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
+                        _Avatar(name: group.memberName, size: 40),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
@@ -1537,8 +2160,6 @@ class _MemberPayoutCard extends StatelessWidget {
                             children: [
                               Text(
                                 group.memberName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
                                 style: AppTextStyles.cardTitle.copyWith(
                                   fontSize: 15,
                                 ),
@@ -1572,7 +2193,7 @@ class _MemberPayoutCard extends StatelessWidget {
                         vertical: 8,
                       ),
                       decoration: BoxDecoration(
-                        color: AppColors.gold.withValues(alpha: 0.07),
+                        color: _P.gold.withValues(alpha: 0.07),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Row(
@@ -1621,7 +2242,7 @@ class _MemberPayoutCard extends StatelessWidget {
                                   entry: entry,
                                   wide: wide,
                                   onMarkPaid: onMarkPaid,
-                                  onView: onView,
+                                  onMarkUnpaid: onMarkUnpaid,
                                   onSetAmount: onSetAmount,
                                 ),
                               _FooterTotals(
@@ -1645,14 +2266,14 @@ class _MemberEventRow extends StatelessWidget {
   final PayoutEntry entry;
   final bool wide;
   final ValueChanged<PayoutEntry> onMarkPaid;
-  final ValueChanged<PayoutEntry> onView;
+  final ValueChanged<PayoutEntry> onMarkUnpaid;
   final ValueChanged<PayoutEntry> onSetAmount;
 
   const _MemberEventRow({
     required this.entry,
     required this.wide,
     required this.onMarkPaid,
-    required this.onView,
+    required this.onMarkUnpaid,
     required this.onSetAmount,
   });
 
@@ -1662,42 +2283,24 @@ class _MemberEventRow extends StatelessWidget {
     final secondary = TextStyle(fontSize: 11.5, color: _secondaryText(context));
     final name = Text(
       event.eventName,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-    );
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: _borderColor(context).withValues(alpha: 0.6),
-          ),
-        ),
+      softWrap: true,
+      style: const TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+        height: 1.2,
       ),
-      child: Row(
-        children: [
-          if (wide) ...[
-            Expanded(flex: 4, child: name),
-            Expanded(
-              flex: 2,
-              child: Text(
-                _shortDateFormat.format(event.date),
-                style: secondary,
-              ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: ShiftBadge(shift: event.shift),
-              ),
-            ),
-          ] else
-            Expanded(
-              flex: 5,
-              child: Column(
+    );
+    final amount = _AmountCell(entry: entry, onEdit: () => onSetAmount(entry));
+    final status = _StatusChip(paid: entry.isPaid);
+
+    return _BorderedPayoutRow(
+      paid: entry.isPaid,
+      leadingFlex: wide ? 4 : 5,
+      leading: Padding(
+        padding: const EdgeInsets.only(right: 6),
+        child: wide
+            ? name
+            : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   name,
@@ -1708,25 +2311,20 @@ class _MemberEventRow extends StatelessWidget {
                   ),
                 ],
               ),
-            ),
-          Expanded(
-            flex: 3,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: _AmountCell(
-                entry: entry,
-                onEdit: () => onSetAmount(entry),
-              ),
-            ),
-          ),
-          Expanded(flex: 3, child: _StatusChip(paid: entry.isPaid)),
-          _ActionButton(
-            entry: entry,
-            onMarkPaid: onMarkPaid,
-            onView: onView,
-            onSetAmount: onSetAmount,
-          ),
+      ),
+      middle: [
+        if (wide) ...[
+          (Text(_shortDateFormat.format(event.date), style: secondary), 2),
+          (ShiftBadge(shift: event.shift), 2),
         ],
+        (amount, 3),
+        (status, 3),
+      ],
+      action: _ActionButton(
+        entry: entry,
+        onMarkPaid: onMarkPaid,
+        onMarkUnpaid: onMarkUnpaid,
+        onSetAmount: onSetAmount,
       ),
     );
   }
@@ -1878,6 +2476,71 @@ class _TipDialogState extends State<_TipDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(onPressed: _submit, child: const Text('Save')),
+      ],
+    );
+  }
+}
+
+/// Confirms Mark All Paid for one event: names the event and how many
+/// pending members (and how much) will be marked paid.
+class _MarkAllPaidDialog extends StatelessWidget {
+  final EventBooking event;
+  final List<PayoutEntry> entries;
+  final int skipped;
+
+  const _MarkAllPaidDialog({
+    required this.event,
+    required this.entries,
+    required this.skipped,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final total = entries.fold<double>(0, (acc, e) => acc + e.amount!);
+    final count = entries.length;
+    return AlertDialog(
+      title: const Text('Mark All Paid?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _DetailLine('Event', event.eventName),
+          _DetailLine('Date', _eventLine(event)),
+          _DetailLine('Pending', '$count member${count == 1 ? '' : 's'}'),
+          _DetailLine(
+            'Total',
+            formatCurrency(total),
+            valueColor: AppColors.success,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Confirm these payments have actually been made. Only this '
+            "event's pending payments will be marked paid.",
+            style: TextStyle(fontSize: 12.5, color: _secondaryText(context)),
+          ),
+          if (skipped > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              '$skipped member${skipped == 1 ? ' has' : 's have'} no amount '
+              'set and will be skipped.',
+              style: const TextStyle(fontSize: 12, color: AppColors.warning),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          style: FilledButton.styleFrom(
+            backgroundColor: _P.gold,
+            foregroundColor: _P.navy,
+          ),
+          child: Text('Mark $count Paid'),
+        ),
       ],
     );
   }
@@ -2039,50 +2702,6 @@ class _MarkPaidDialogState extends State<_MarkPaidDialog> {
               ? () => Navigator.of(context).pop(_noteController.text)
               : null,
           child: const Text('Mark Paid'),
-        ),
-      ],
-    );
-  }
-}
-
-class _ViewPaymentDialog extends StatelessWidget {
-  final PayoutEntry entry;
-  const _ViewPaymentDialog({required this.entry});
-
-  @override
-  Widget build(BuildContext context) {
-    final payout = entry.payout;
-    final paidAt = payout?.paidAt;
-    final note = payout?.note ?? '';
-    return AlertDialog(
-      title: const Text('Payment Details'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _DetailLine('Member', entry.memberName),
-          _DetailLine('Event', entry.event.eventName),
-          _DetailLine('Date', _eventLine(entry.event)),
-          if (entry.amount == null)
-            const _DetailLine('Amount paid', 'Not recorded')
-          else
-            ..._amountLines(entry, totalLabel: 'Amount paid'),
-          _DetailLine(
-            'Status',
-            entry.status.label,
-            valueColor: entry.isPaid ? AppColors.success : AppColors.danger,
-          ),
-          _DetailLine(
-            'Paid on',
-            paidAt == null ? 'Not recorded' : _paidAtFormat.format(paidAt),
-          ),
-          _DetailLine('Notes', note.isEmpty ? 'None' : note),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
         ),
       ],
     );
