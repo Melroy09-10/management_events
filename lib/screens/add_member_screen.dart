@@ -29,6 +29,15 @@ Future<void> showAddMembersSheet(BuildContext context, EventBooking event) =>
       context,
     ).push(MaterialPageRoute(builder: (_) => _AddMembersPage(event: event)));
 
+/// Opens the Admin Add Event sheet to create a new staffing event.
+Future<void> showAddStaffingEventSheet(BuildContext context) =>
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const AddEventSheet(),
+    );
+
 /// Opens the Admin Add Event sheet in edit mode for staffing [event].
 Future<void> showEditStaffingEventSheet(
   BuildContext context,
@@ -55,7 +64,9 @@ class AddMemberScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Assign Members')),
       body: SafeArea(
         child: StreamBuilder<List<EventBooking>>(
-          stream: dataService.pendingEvents(),
+          // Only Admin-created events take members; bookings from the user
+          // section's Add Event stay in Pending Events.
+          stream: dataService.pendingStaffingEvents(),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());

@@ -54,6 +54,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     ('History', Icons.history_rounded, AppColors.success),
   ];
 
+  /// Whether the Admin is on the Assigned Members tab, which decides what
+  /// the Add Event button creates.
+  bool _onAssignedTab = false;
+
   @override
   void initState() {
     super.initState();
@@ -91,10 +95,14 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     return Scaffold(
       drawer: const AppDrawer(),
+      // On the Admin's Assigned Members tab this creates a staffing event
+      // (ADMIN section's Add Event); everywhere else the user's own booking.
       floatingActionButton: DashAddEventButton(
-        onPressed: () => Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const AddEventScreen())),
+        onPressed: () => _onAssignedTab
+            ? showAddStaffingEventSheet(context)
+            : Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const AddEventScreen())),
       ),
       body: Column(
         children: [
@@ -113,7 +121,11 @@ class _DashboardScreenState extends State<DashboardScreen>
                       user: user,
                       quickActions: _quickActions,
                     )
-                  : _TodaysEventsBody(isAdmin: role == UserRole.admin),
+                  : _TodaysEventsBody(
+                      isAdmin: role == UserRole.admin,
+                      onPageChanged: (page) =>
+                          setState(() => _onAssignedTab = page == 1),
+                    ),
             ),
           ),
         ],
@@ -234,7 +246,8 @@ class _SuperAdminDashboardBody extends StatelessWidget {
 /// events, and the members assigned to that day's staffing events.
 class _TodaysEventsBody extends StatefulWidget {
   final bool isAdmin;
-  const _TodaysEventsBody({required this.isAdmin});
+  final ValueChanged<int>? onPageChanged;
+  const _TodaysEventsBody({required this.isAdmin, this.onPageChanged});
 
   @override
   State<_TodaysEventsBody> createState() => _TodaysEventsBodyState();
@@ -280,24 +293,10 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
     });
   }
 
-  /// Assigned Members rows: grouped by event (name, then shift), members
-  /// A–Z within each.
-  static int _byEventThenMember(
-    ({EventBooking event, AssignedMember member}) a,
-    ({EventBooking event, AssignedMember member}) b,
-  ) {
-    int lower(String x, String y) => x.toLowerCase().compareTo(y.toLowerCase());
-    final byName = lower(a.event.eventName, b.event.eventName);
-    if (byName != 0) return byName;
-    final byShift = a.event.shift.index.compareTo(b.event.shift.index);
-    if (byShift != 0) return byShift;
-    final byEvent = a.event.id.compareTo(b.event.id);
-    if (byEvent != 0) return byEvent;
-    return lower(a.member.name, b.member.name);
-  }
-
   void _goTo(int page) {
-    if (page != _page) setState(() => _page = page);
+    if (page == _page) return;
+    setState(() => _page = page);
+    widget.onPageChanged?.call(page);
   }
 
   void _onSwipe(DragEndDetails details) {
@@ -334,21 +333,15 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
   ) {
     final dataService = context.read<DataService>();
     final events = mine.data ?? const <EventBooking>[];
-    // Members can be assigned to any upcoming event from Assign Members, so
-    // both of the day's streams are searched. Events with nobody assigned
-    // simply contribute no rows.
+    // Only Admin-created (staffing) events take members — user bookings
+    // never appear here. Events with nobody assigned are left out.
     final assignedEvents = [
-      for (final e in [...events, ...?staffing?.data])
+      for (final e in staffing?.data ?? const <EventBooking>[])
         if (e.assignedMembers.isNotEmpty) e,
     ];
-    final assignments = [
-      for (final e in assignedEvents)
-        for (final m in e.assignedMembers) (event: e, member: m),
-    ]..sort(_byEventThenMember);
     final showingAssigned = widget.isAdmin && _page == 1;
     final loading = showingAssigned
-        ? mine.connectionState == ConnectionState.waiting ||
-              staffing?.connectionState == ConnectionState.waiting
+        ? staffing?.connectionState == ConnectionState.waiting
         : mine.connectionState == ConnectionState.waiting;
     final counts = _ShiftCounts.of(showingAssigned ? assignedEvents : events);
 
@@ -387,7 +380,7 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
                             const SizedBox(width: 10),
                             DashCountBadge(
                               count: showingAssigned
-                                  ? assignments.length
+                                  ? assignedEvents.length
                                   : events.length,
                             ),
                           ],
@@ -430,13 +423,13 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
                   child: Center(child: CircularProgressIndicator()),
                 ),
               )
-            else if (showingAssigned && assignments.isEmpty)
+            else if (showingAssigned && assignedEvents.isEmpty)
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
                 sliver: SliverToBoxAdapter(
                   child: DashEmptyCard(
                     icon: Icons.group_off_rounded,
-                    message: 'No members assigned for this date.',
+                    message: 'No events with assigned members for this date.',
                   ),
                 ),
               )
@@ -444,14 +437,13 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
                 sliver: SliverList.separated(
-                  itemCount: assignments.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemCount: assignedEvents.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
-                    final (:event, :member) = assignments[index];
-                    return _AssignedMemberCard(
-                      member: member,
+                    final event = assignedEvents[index];
+                    return _AssignedEventCard(
                       event: event,
-                      onTap: () => Navigator.of(context).push(
+                      onViewDetails: () => Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => _EventMembersScreen(event: event),
                         ),
@@ -559,52 +551,50 @@ class _ShiftSummaryRow extends StatelessWidget {
   }
 }
 
-/// One assigned member on the Assigned Members tab: initial avatar, name,
-/// the event they're assigned to, its Day / Night shift, and whether
-/// they've been marked present. Tapping opens [_EventMembersScreen] for
-/// that event, where attendance, calling and add/remove are managed.
-class _AssignedMemberCard extends StatelessWidget {
-  final AssignedMember member;
+/// An event on the Assigned Members tab, in the same white-card style as
+/// the My Events cards: event name and client, Day / Night badge, location
+/// and date, event type and assigned-member count, and a View Details
+/// button that opens [_EventMembersScreen] for this event.
+class _AssignedEventCard extends StatelessWidget {
   final EventBooking event;
-  final VoidCallback onTap;
-  const _AssignedMemberCard({
-    required this.member,
-    required this.event,
-    required this.onTap,
-  });
+  final VoidCallback onViewDetails;
+  const _AssignedEventCard({required this.event, required this.onViewDetails});
 
   @override
   Widget build(BuildContext context) {
-    final name = member.name.trim();
-    final present = event.presentMemberIds.contains(member.id);
-    final radius = BorderRadius.circular(16);
-    return Material(
-      color: DashColors.surface(context),
-      shape: RoundedRectangleBorder(
-        borderRadius: radius,
-        side: BorderSide(color: DashColors.line(context)),
+    const muted = TextStyle(color: DashColors.textSecondary, fontSize: 13);
+    final assigned = event.assignedMembers.length;
+    final required = event.requiredMembers;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: DashColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: DashColors.navy.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
-      child: InkWell(
-        borderRadius: radius,
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-          child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
             children: [
-              CircleAvatar(
-                radius: 20,
-                backgroundColor: DashColors.tint(
-                  context,
-                  light: DashColors.dayBadgeBg,
-                  accent: DashColors.gold,
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: DashColors.lightGray,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(
-                  name.isEmpty ? '?' : name[0].toUpperCase(),
-                  style: const TextStyle(
-                    color: DashColors.goldDeep,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
-                  ),
+                child: const Icon(
+                  Icons.person_rounded,
+                  color: DashColors.navy,
+                  size: 21,
                 ),
               ),
               const SizedBox(width: 12),
@@ -613,91 +603,99 @@ class _AssignedMemberCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      name.isEmpty ? 'Unnamed member' : name,
+                      event.eventName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: DashColors.textPrimary(context),
+                      style: const TextStyle(
                         fontWeight: FontWeight.w800,
-                        fontSize: 15,
+                        fontSize: 16,
+                        color: DashColors.text,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.event_note_rounded,
-                          size: 14,
-                          color: DashColors.textMuted(context),
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            event.eventName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: DashColors.textMuted(context),
-                              fontSize: 12.5,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: [
-                        _ShiftLabelBadge(shift: event.shift),
-                        _StatusChip(present: present),
-                      ],
+                    const SizedBox(height: 1),
+                    Text(
+                      event.personName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: muted,
                     ),
                   ],
                 ),
               ),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: DashColors.textMuted(context),
+              const SizedBox(width: 8),
+              _ShiftLabelBadge(shift: event.shift),
+            ],
+          ),
+          const Divider(height: 20, color: DashColors.border),
+          Row(
+            children: [
+              const Icon(
+                Icons.location_on_outlined,
+                size: 15,
+                color: DashColors.textSecondary,
+              ),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  event.location,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: muted,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Icon(
+                Icons.calendar_today_outlined,
+                size: 14,
+                color: DashColors.textSecondary,
+              ),
+              const SizedBox(width: 5),
+              Text(formatEventDate(event.date), style: muted),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              if (event.eventType.trim().isNotEmpty)
+                _InfoPill(
+                  icon: Icons.category_outlined,
+                  label: event.eventType.trim(),
+                ),
+              _InfoPill(
+                icon: Icons.groups_rounded,
+                label: required > 0
+                    ? '$assigned / $required members'
+                    : '$assigned ${assigned == 1 ? 'member' : 'members'}',
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// "Present" (green) once ticked on the event's members page, otherwise
-/// "Assigned".
-class _StatusChip extends StatelessWidget {
-  final bool present;
-  const _StatusChip({required this.present});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = present ? DashColors.green : DashColors.textSecondary;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: present ? DashColors.lightGreen : DashColors.lightGray,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            present ? Icons.check_circle_rounded : Icons.schedule_rounded,
-            size: 13,
-            color: color,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            present ? 'Present' : 'Assigned',
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w700,
-              fontSize: 12,
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 44,
+            child: ElevatedButton(
+              onPressed: onViewDetails,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: DashColors.navy,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(13),
+                  side: const BorderSide(color: DashColors.gold, width: 1.2),
+                ),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'View Details',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  SizedBox(width: 6),
+                  Icon(Icons.arrow_forward_rounded, size: 18),
+                ],
+              ),
             ),
           ),
         ],
@@ -706,7 +704,44 @@ class _StatusChip extends StatelessWidget {
   }
 }
 
-/// One staffing event's members, opened from View Members: the event
+/// Small light-gray pill with an icon (event type, member count).
+class _InfoPill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _InfoPill({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: DashColors.lightGray,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: DashColors.textSecondary),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: DashColors.text,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One event's members, opened from View Details: the event
 /// header (with Edit), assigned / present statistics, and each member with
 /// present tick, remove, and long-press to call — plus Add Member, which
 /// opens the existing allocation picker for this event. Kept live, so
