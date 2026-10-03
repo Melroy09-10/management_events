@@ -5,6 +5,7 @@ import '../models/event_booking.dart';
 import '../models/event_record.dart';
 import '../models/event_type.dart';
 import '../models/member.dart';
+import '../models/payout.dart';
 import '../models/person.dart';
 
 /// Result of [DataService.checkBookingSlot].
@@ -39,6 +40,8 @@ class DataService {
       _ownerDoc.collection('events');
   CollectionReference<Map<String, dynamic>> get _eventBookingsCollection =>
       _ownerDoc.collection('event_bookings');
+  CollectionReference<Map<String, dynamic>> get _payoutsCollection =>
+      _ownerDoc.collection('payouts');
 
   // --- Person Data ---
 
@@ -609,6 +612,14 @@ class DataService {
     return _eventBookingsCollection.doc(bookingId).update({'tips': tips});
   }
 
+  /// Sets the per-head tip every assigned member of [bookingId] gets on
+  /// top of their payout.
+  Future<void> updateMemberTipPerHead(String bookingId, double tip) {
+    return _eventBookingsCollection.doc(bookingId).update({
+      'memberTipPerHead': tip,
+    });
+  }
+
   /// Changes how many members a staffing event needs.
   Future<void> updateRequiredMembers(String bookingId, int requiredMembers) {
     return _eventBookingsCollection.doc(bookingId).update({
@@ -631,5 +642,94 @@ class DataService {
       batch.update(_eventBookingsCollection.doc(id), {'copied': copied});
     }
     return batch.commit();
+  }
+
+  // --- Payouts (what the Admin owes each assigned member per event) ---
+
+  /// Every Admin staffing event (any status), newest first, for the Payouts
+  /// page. Staffing is filtered client-side, like [pendingStaffingEvents].
+  Stream<List<EventBooking>> staffingEvents() {
+    return _eventBookingsCollection.snapshots().map((snap) {
+      final events = snap.docs
+          .map((d) => EventBooking.fromJson(d.id, d.data()))
+          .where((e) => e.requiredMembers > 0)
+          .toList();
+      events.sort(newestFirst);
+      return events;
+    });
+  }
+
+  /// All stored payout records, live.
+  Stream<List<Payout>> payouts() {
+    return _payoutsCollection.snapshots().map(
+      (snap) => snap.docs.map((d) => Payout.fromJson(d.id, d.data())).toList(),
+    );
+  }
+
+  /// Sets the amount owed to [memberId] for [eventId], creating the payout
+  /// record (as Pending) the first time. Refuses to change an amount that's
+  /// already been paid.
+  Future<void> setPayoutAmount({
+    required String eventId,
+    required String memberId,
+    required String memberName,
+    required double amount,
+  }) {
+    final ref = _payoutsCollection.doc(payoutDocId(eventId, memberId));
+    return _firestore.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      final data = snap.data();
+      if (data != null &&
+          PayoutStatusX.fromStorage(data['status'] as String?) ==
+              PayoutStatus.paid) {
+        throw StateError('This payout has already been paid.');
+      }
+      tx.set(ref, {
+        'eventId': eventId,
+        'memberId': memberId,
+        'memberName': memberName,
+        'amount': amount,
+        if (data == null) 'status': PayoutStatus.pending.storageValue,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
+  }
+
+  /// Marks exactly one payout — [memberId] for [eventId] — as Paid at the
+  /// [amount] the Admin confirmed, stamping the payment time. Creates the
+  /// record if only the event's default amount existed. Fails if it's
+  /// already paid, so a payment can't be recorded twice.
+  Future<void> markPayoutPaid({
+    required String eventId,
+    required String memberId,
+    required String memberName,
+    required double amount,
+    double tip = 0,
+    String note = '',
+  }) {
+    if (amount <= 0) {
+      throw StateError('Set an amount before marking this paid.');
+    }
+    final ref = _payoutsCollection.doc(payoutDocId(eventId, memberId));
+    return _firestore.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      final data = snap.data();
+      if (data != null &&
+          PayoutStatusX.fromStorage(data['status'] as String?) ==
+              PayoutStatus.paid) {
+        throw StateError('This payout is already marked paid.');
+      }
+      tx.set(ref, {
+        'eventId': eventId,
+        'memberId': memberId,
+        'memberName': memberName,
+        'amount': amount,
+        'tip': tip,
+        'status': PayoutStatus.paid.storageValue,
+        'paidAt': FieldValue.serverTimestamp(),
+        'note': note.trim(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
   }
 }

@@ -13,6 +13,7 @@ import '../screens/history_screen.dart';
 import '../screens/manage_data_screen.dart';
 import '../screens/members_screen.dart';
 import '../screens/pending_events_screen.dart';
+import '../screens/payouts_screen.dart';
 import '../screens/pending_payments_screen.dart';
 import '../screens/profile_screen.dart';
 import '../services/auth_service.dart';
@@ -124,6 +125,7 @@ class _AppDrawerState extends State<AppDrawer> {
                                 _AddStaffingEventDrawerItem(),
                                 _AddMembersDrawerItem(),
                                 _AdminPendingEventsDrawerItem(),
+                                _PayoutsDrawerItem(),
                                 _ContactDrawerItem(),
                                 if (isSuperAdmin) _AdminRequestsDrawerItem(),
                               ],
@@ -434,6 +436,20 @@ class _AdminPendingEventsDrawerItem extends StatelessWidget {
       label: 'Pending Events',
       onTap: () {
         _openFromDrawer(context, const AdminPendingEventsScreen());
+      },
+    );
+  }
+}
+
+/// Admin-only: what's owed to each member assigned to staffing events.
+class _PayoutsDrawerItem extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return _DrawerItem(
+      icon: Icons.account_balance_wallet_rounded,
+      label: 'Payouts',
+      onTap: () {
+        _openFromDrawer(context, const PayoutsScreen());
       },
     );
   }

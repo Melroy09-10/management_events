@@ -301,6 +301,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
         commission: widget.existing?.commission ?? 0,
         commissionType: widget.existing?.commissionType ?? CommissionType.total,
         commissionPaid: widget.existing?.commissionPaid ?? false,
+        memberTipPerHead: widget.existing?.memberTipPerHead ?? 0,
       );
 
       if (_isEditing) {

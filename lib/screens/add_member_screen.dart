@@ -1016,6 +1016,7 @@ class _AddEventSheetState extends State<AddEventSheet> {
         commission: _commission,
         commissionType: _commissionType,
         commissionPaid: existing?.commissionPaid ?? false,
+        memberTipPerHead: existing?.memberTipPerHead ?? 0,
       );
       if (existing != null) {
         await dataService.updateEventBooking(existing.id, booking);

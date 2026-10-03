@@ -85,6 +85,11 @@ class EventBooking {
   /// from the event payment ([status]).
   final bool commissionPaid;
 
+  /// Tip each assigned member gets on top of their payout (per head, so
+  /// 100 means every member gets 100). Separate from [tips], which is what
+  /// the client tipped for the event.
+  final double memberTipPerHead;
+
   const EventBooking({
     required this.id,
     required this.eventTypeId,
@@ -105,6 +110,7 @@ class EventBooking {
     this.commission = 0,
     this.commissionType = CommissionType.total,
     this.commissionPaid = false,
+    this.memberTipPerHead = 0,
   });
 
   bool get isSelfCaller => personId == selfCallerId;
@@ -149,6 +155,7 @@ class EventBooking {
     'commission': commission,
     'commissionType': commissionType.storageValue,
     'commissionPaid': commissionPaid,
+    'memberTipPerHead': memberTipPerHead,
   };
 
   factory EventBooking.fromJson(String id, Map<String, dynamic> json) =>
@@ -180,6 +187,7 @@ class EventBooking {
           json['commissionType'] as String?,
         ),
         commissionPaid: json['commissionPaid'] as bool? ?? false,
+        memberTipPerHead: (json['memberTipPerHead'] as num?)?.toDouble() ?? 0,
       );
 }
 
