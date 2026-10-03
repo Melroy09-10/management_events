@@ -11,9 +11,9 @@ import 'payment_chips.dart';
 class DashColors {
   DashColors._();
 
-  static const navy = Color(0xFF062442);
-  static const navyLight = Color(0xFF08294A);
-  static const gold = Color(0xFFD9A928);
+  static const navy = Color(0xFF0B2343);
+  static const navyLight = Color(0xFF0E2B52);
+  static const gold = Color(0xFFD9AC32);
   static const goldLight = Color(0xFFE7BE55);
   static const goldDeep = Color(0xFF9C7612);
   static const cream = Color(0xFFFAF8F1);
@@ -21,8 +21,15 @@ class DashColors {
   static const lightGreen = Color(0xFFEAF8F1);
   static const lightRed = Color(0xFFFDECEC);
   static const lightGray = Color(0xFFF2F4F7);
-  static const text = Color(0xFF10233F);
-  static const textSecondary = Color(0xFF667085);
+  static const blue = Color(0xFF2F6FB5);
+
+  /// Day Shift: soft gold/cream. Night Shift: soft blue.
+  static const dayBg = Color(0xFFFCF6E6);
+  static const dayBadgeBg = Color(0xFFF6ECC9);
+  static const nightBg = Color(0xFFEEF4FC);
+  static const nightBadgeBg = Color(0xFFE1ECFA);
+  static const text = Color(0xFF102746);
+  static const textSecondary = Color(0xFF758096);
   static const border = Color(0xFFE5E7EB);
   static const green = Color(0xFF1E9E6A);
   static const red = Color(0xFFE5484D);
@@ -198,39 +205,35 @@ class DashboardHeader extends StatelessWidget {
   }
 }
 
-/// A compact summary tile ("Today's Events", "Today's Payments"). Both
-/// tiles share one cream + thin gold border treatment: icon and label on
-/// top, the value large and centered toward the bottom, and a small caption
-/// under it. Display-only.
-class DashSummaryCard extends StatelessWidget {
-  static const _bg = Color(0xFFFCF6E6);
-  static const _iconBg = Color(0xFFF5E6B8);
-
+/// A compact summary tile ("Day Shift", "Night Shift", "Total Events"):
+/// icon and label on top, the count large in the middle, and a small
+/// caption under it, on a tinted background with a thin [accent] border.
+/// Display-only; sized to sit three in a row on a phone.
+class DashShiftSummaryCard extends StatelessWidget {
   final IconData icon;
   final String label;
-  final String value;
+  final int count;
   final String caption;
-  const DashSummaryCard({
+  final Color background;
+  final Color accent;
+  const DashShiftSummaryCard({
     super.key,
     required this.icon,
     required this.label,
-    required this.value,
+    required this.count,
     required this.caption,
+    required this.background,
+    required this.accent,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final radius = BorderRadius.circular(20);
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
       decoration: BoxDecoration(
-        color: isDark ? DashColors.gold.withValues(alpha: 0.10) : _bg,
-        borderRadius: radius,
-        border: Border.all(
-          color: DashColors.gold.withValues(alpha: 0.55),
-          width: 1.2,
-        ),
+        color: DashColors.tint(context, light: background, accent: accent),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: accent.withValues(alpha: 0.55), width: 1.2),
         boxShadow: DashColors.softShadow,
       ),
       child: Column(
@@ -238,39 +241,40 @@ class DashSummaryCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 32,
-                height: 32,
+                width: 26,
+                height: 26,
                 decoration: BoxDecoration(
-                  color: isDark
-                      ? DashColors.gold.withValues(alpha: 0.18)
-                      : _iconBg,
-                  borderRadius: BorderRadius.circular(10),
+                  color: accent.withValues(alpha: 0.16),
+                  shape: BoxShape.circle,
                 ),
-                child: Icon(icon, color: DashColors.goldDeep, size: 18),
+                child: Icon(icon, color: accent, size: 15),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: DashColors.textPrimary(context),
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: DashColors.textPrimary(context),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           FittedBox(
             fit: BoxFit.scaleDown,
             child: Text(
-              value,
+              '$count',
               style: TextStyle(
                 color: DashColors.textPrimary(context),
-                fontSize: 28,
+                fontSize: 26,
                 fontWeight: FontWeight.w800,
                 letterSpacing: -0.4,
                 height: 1.15,
@@ -280,13 +284,14 @@ class DashSummaryCard extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             caption,
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
             style: TextStyle(
               color: DashColors.textMuted(context),
-              fontSize: 11.5,
+              fontSize: 10.5,
               fontWeight: FontWeight.w500,
+              height: 1.2,
             ),
           ),
         ],
@@ -453,15 +458,19 @@ class DashEventTabs extends StatelessWidget {
               color: isSelected ? DashColors.gold : textColor,
             ),
             const SizedBox(width: 8),
+            // Shrinks rather than truncating ("Assigned Memb…") on narrow
+            // screens or with a large system font.
             Flexible(
-              child: Text(
-                tab.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: textColor,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  tab.label,
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: textColor,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
                 ),
               ),
             ),

@@ -37,6 +37,8 @@ extension on _PayoutSort {
 }
 
 final _shortDateFormat = DateFormat('dd MMM');
+final _paidAtFormat = DateFormat('dd MMM yyyy, h:mm a');
+final _monthFormat = DateFormat('MMMM yyyy');
 final _numericDateFormat = DateFormat('dd/MM/yyyy');
 
 class _EventGroup {
@@ -2704,6 +2706,558 @@ class _MarkPaidDialogState extends State<_MarkPaidDialog> {
           child: const Text('Mark Paid'),
         ),
       ],
+    );
+  }
+}
+
+// --- Payment history ---
+
+/// Admin sidebar "History": asks whose payment history to see — a
+/// searchable list of every member with payouts — then opens that member's
+/// full record. Live, from the same payout records as the Payouts page.
+class PayoutHistoryScreen extends StatefulWidget {
+  const PayoutHistoryScreen({super.key});
+
+  @override
+  State<PayoutHistoryScreen> createState() => _PayoutHistoryScreenState();
+}
+
+class _PayoutHistoryScreenState extends State<PayoutHistoryScreen> {
+  late final Stream<List<EventBooking>> _eventsStream;
+  late final Stream<List<Payout>> _payoutsStream;
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    final dataService = context.read<DataService>();
+    _eventsStream = dataService.staffingEvents();
+    _payoutsStream = dataService.payouts();
+  }
+
+  void _open(_MemberGroup member) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _MemberHistoryScreen(
+          memberId: member.memberId,
+          memberName: member.memberName,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _isDark(context) ? null : _P.ivory,
+      drawer: const AppDrawer(),
+      appBar: AppBar(title: const Text('History')),
+      body: SafeArea(
+        child: StreamBuilder<List<EventBooking>>(
+          stream: _eventsStream,
+          builder: (context, eventsSnap) => StreamBuilder<List<Payout>>(
+            stream: _payoutsStream,
+            builder: (context, payoutsSnap) {
+              final error = eventsSnap.error ?? payoutsSnap.error;
+              if (error != null) {
+                final denied =
+                    error is FirebaseException &&
+                    error.code == 'permission-denied';
+                return _MessageState(
+                  icon: Icons.error_outline_rounded,
+                  title: "Couldn't load history",
+                  subtitle: denied
+                      ? 'Permission denied. The Firestore security rules '
+                            "for payouts haven't been published yet."
+                      : 'Check your connection and try again.',
+                );
+              }
+              if (!eventsSnap.hasData || !payoutsSnap.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              return _buildBody(
+                buildPayoutEntries(eventsSnap.data!, payoutsSnap.data!),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(List<PayoutEntry> entries) {
+    final byMember = <String, List<PayoutEntry>>{};
+    for (final e in entries) {
+      (byMember[e.memberId] ??= []).add(e);
+    }
+    final q = _query.toLowerCase();
+    final members =
+        [
+          for (final list in byMember.values)
+            _MemberGroup(list.first.memberId, list.first.memberName, list),
+        ].where((m) => m.memberName.toLowerCase().contains(q)).toList()..sort(
+          (a, b) =>
+              a.memberName.toLowerCase().compareTo(b.memberName.toLowerCase()),
+        );
+
+    return ResponsiveCenter(
+      maxWidth: 820,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
+        children: [
+          Text('History', style: AppTextStyles.pageTitle),
+          const SizedBox(height: 2),
+          Text(
+            'Whose history do you want to see?',
+            style: AppTextStyles.label.copyWith(color: _secondaryText(context)),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            onChanged: (v) => setState(() => _query = v.trim()),
+            decoration: const InputDecoration(
+              hintText: 'Search member name',
+              isDense: true,
+              prefixIcon: Icon(Icons.search_rounded, size: 20),
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (byMember.isEmpty)
+            const _MessageState(
+              icon: Icons.history_rounded,
+              title: 'No history yet',
+              subtitle:
+                  'Members you assign to events from Assign Members will appear here.',
+            )
+          else if (members.isEmpty)
+            const _MessageState(
+              icon: Icons.person_search_rounded,
+              title: 'No members found',
+              subtitle: 'Try a different name.',
+            )
+          else
+            for (final m in members) ...[
+              _MemberPickerTile(member: m, onTap: () => _open(m)),
+              const SizedBox(height: 8),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MemberPickerTile extends StatelessWidget {
+  final _MemberGroup member;
+  final VoidCallback onTap;
+  const _MemberPickerTile({required this.member, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final totals = member.totals;
+    final events = member.entries.length;
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: _P.gold.withValues(alpha: 0.35)),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+          child: Row(
+            children: [
+              _Avatar(name: member.memberName, size: 40),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      member.memberName,
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$events event${events == 1 ? '' : 's'} · '
+                      '${formatCurrency(totals.paid)} paid',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _secondaryText(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (totals.pending > 0)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Text(
+                    '${formatCurrency(totals.pending)} due',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.danger,
+                    ),
+                  ),
+                ),
+              Icon(Icons.chevron_right_rounded, color: _secondaryText(context)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One member's full payment record: totals, then every event they were
+/// paid (or are still owed) for, newest first and grouped by month. Live,
+/// from the same payout records as the Payouts page.
+class _MemberHistoryScreen extends StatefulWidget {
+  final String memberId;
+  final String memberName;
+
+  const _MemberHistoryScreen({
+    required this.memberId,
+    required this.memberName,
+  });
+
+  @override
+  State<_MemberHistoryScreen> createState() => _MemberHistoryScreenState();
+}
+
+class _MemberHistoryScreenState extends State<_MemberHistoryScreen> {
+  late final Stream<List<EventBooking>> _eventsStream;
+  late final Stream<List<Payout>> _payoutsStream;
+  _StatusFilter _filter = _StatusFilter.all;
+
+  @override
+  void initState() {
+    super.initState();
+    final dataService = context.read<DataService>();
+    _eventsStream = dataService.staffingEvents();
+    _payoutsStream = dataService.payouts();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _isDark(context) ? null : _P.ivory,
+      appBar: AppBar(title: const Text('Payment History')),
+      body: SafeArea(
+        child: StreamBuilder<List<EventBooking>>(
+          stream: _eventsStream,
+          builder: (context, eventsSnap) => StreamBuilder<List<Payout>>(
+            stream: _payoutsStream,
+            builder: (context, payoutsSnap) {
+              if (eventsSnap.hasError || payoutsSnap.hasError) {
+                return const _MessageState(
+                  icon: Icons.error_outline_rounded,
+                  title: "Couldn't load history",
+                  subtitle: 'Check your connection and try again.',
+                );
+              }
+              if (!eventsSnap.hasData || !payoutsSnap.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final entries =
+                  buildPayoutEntries(
+                      eventsSnap.data!,
+                      payoutsSnap.data!,
+                    ).where((e) => e.memberId == widget.memberId).toList()
+                    ..sort((a, b) => newestFirst(a.event, b.event));
+              return _buildBody(entries);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(List<PayoutEntry> entries) {
+    final totals = PayoutTotals.of(entries);
+    final paidTips = entries
+        .where((e) => e.isPaid)
+        .fold<double>(0, (acc, e) => acc + e.tip);
+    final shown = entries.where((e) {
+      return switch (_filter) {
+        _StatusFilter.all => true,
+        _StatusFilter.paid => e.isPaid,
+        _StatusFilter.pending => !e.isPaid,
+      };
+    }).toList();
+
+    final months = <String, List<PayoutEntry>>{};
+    for (final e in shown) {
+      (months[_monthFormat.format(e.event.date)] ??= []).add(e);
+    }
+
+    return ResponsiveCenter(
+      maxWidth: 820,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
+        children: [
+          _HistoryProfileCard(
+            name: entries.isEmpty
+                ? widget.memberName
+                : entries.first.memberName,
+            eventCount: entries.length,
+            paidCount: totals.paidCount,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _SummaryTile(
+                  icon: Icons.check_circle_rounded,
+                  label: 'Total Paid',
+                  amount: totals.paid,
+                  color: AppColors.success,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _SummaryTile(
+                  icon: Icons.schedule_rounded,
+                  label: 'Pending',
+                  amount: totals.pending,
+                  color: AppColors.danger,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _SummaryTile(
+                  icon: Icons.card_giftcard_rounded,
+                  label: 'Tips Paid',
+                  amount: paidTips,
+                  color: _P.goldDark,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              for (final f in _StatusFilter.values) ...[
+                _FilterPill(
+                  label: f.label,
+                  selected: f == _filter,
+                  onTap: () => setState(() => _filter = f),
+                ),
+                const SizedBox(width: 6),
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          if (shown.isEmpty)
+            _MessageState(
+              icon: Icons.receipt_long_rounded,
+              title: entries.isEmpty ? 'No payments yet' : 'Nothing here',
+              subtitle: entries.isEmpty
+                  ? 'This member has no payouts recorded.'
+                  : 'No ${_filter.label.toLowerCase()} payments.',
+            )
+          else
+            for (final MapEntry(key: month, value: items)
+                in months.entries) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
+                child: Row(
+                  children: [
+                    Text(
+                      month.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1,
+                        color: _secondaryText(context),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Container(
+                        height: 1,
+                        color: _P.gold.withValues(alpha: 0.35),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              for (final e in items) _HistoryTile(entry: e),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryProfileCard extends StatelessWidget {
+  final String name;
+  final int eventCount;
+  final int paidCount;
+
+  const _HistoryProfileCard({
+    required this.name,
+    required this.eventCount,
+    required this.paidCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [_P.navyDeep, _P.navy, _P.navyLight],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: _P.gold.withValues(alpha: 0.7)),
+      ),
+      child: Row(
+        children: [
+          _Avatar(name: name, size: 52),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$eventCount event${eventCount == 1 ? '' : 's'} · '
+                  '$paidCount paid',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.72),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One event in a member's history: event, date & shift, amount (with the
+/// tip spelled out), status, and when it was paid.
+class _HistoryTile extends StatelessWidget {
+  final PayoutEntry entry;
+  const _HistoryTile({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    final event = entry.event;
+    final amount = entry.amount;
+    final paidAt = entry.payout?.paidAt;
+    final note = entry.payout?.note ?? '';
+    final secondary = TextStyle(fontSize: 12, color: _secondaryText(context));
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: entry.isPaid
+            ? AppColors.success.withValues(
+                alpha: _isDark(context) ? 0.08 : 0.04,
+              )
+            : Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: entry.isPaid
+              ? AppColors.success.withValues(alpha: 0.25)
+              : _P.gold.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  event.eventName,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                amount == null ? 'Not set' : formatCurrency(amount),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: amount == null
+                      ? AppColors.warning
+                      : (entry.isPaid ? AppColors.success : null),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 10,
+            runSpacing: 2,
+            children: [
+              Text(
+                '${formatEventDate(event.date)} · ${event.shift.label}',
+                style: secondary,
+              ),
+              if (amount != null && entry.tip > 0)
+                Text(
+                  '${formatCurrency(entry.baseAmount!)} + '
+                  '${formatCurrency(entry.tip)} tip',
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.success,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _StatusChip(paid: entry.isPaid),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  entry.isPaid
+                      ? (paidAt == null
+                            ? 'Paid'
+                            : 'Paid on ${_paidAtFormat.format(paidAt)}')
+                      : 'Not paid yet',
+                  style: secondary,
+                ),
+              ),
+            ],
+          ),
+          if (note.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Note: $note',
+              style: secondary.copyWith(fontStyle: FontStyle.italic),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

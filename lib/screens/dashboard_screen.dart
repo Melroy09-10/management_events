@@ -377,10 +377,7 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
     final loading = showingAssigned
         ? staffing?.connectionState == ConnectionState.waiting
         : mine.connectionState == ConnectionState.waiting;
-    final dayTotal = events.fold<double>(
-      0,
-      (sum, e) => sum + e.amount + e.tips,
-    );
+    final counts = _ShiftCounts.of(showingAssigned ? staffingEvents : events);
 
     return ResponsiveCenter(
       maxWidth: 760,
@@ -389,42 +386,7 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
         child: CustomScrollView(
           slivers: [
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              sliver: SliverToBoxAdapter(
-                child: IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(
-                        child: DashSummaryCard(
-                          icon: Icons.calendar_month_rounded,
-                          label: _isToday ? "Today's Events" : 'Events',
-                          value: '${events.length}',
-                          caption: _isToday
-                              ? (events.length == 1
-                                    ? 'Event scheduled today'
-                                    : 'Events scheduled today')
-                              : 'Scheduled on this date',
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: DashSummaryCard(
-                          icon: Icons.currency_rupee_rounded,
-                          label: _isToday ? "Today's Payments" : 'Payments',
-                          value: formatCurrency(dayTotal),
-                          caption: _isToday
-                              ? 'Total for today'
-                              : 'Total for this date',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 16, 12),
+              padding: const EdgeInsets.fromLTRB(20, 18, 16, 14),
               sliver: SliverToBoxAdapter(
                 child: Row(
                   children: [
@@ -477,6 +439,50 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
                   ),
                 ),
               ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+              sliver: SliverToBoxAdapter(
+                child: IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: DashShiftSummaryCard(
+                          icon: Icons.wb_sunny_rounded,
+                          label: 'Day Shift',
+                          count: counts.day,
+                          caption: 'Events with members',
+                          background: DashColors.dayBg,
+                          accent: DashColors.gold,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: DashShiftSummaryCard(
+                          icon: Icons.nightlight_round,
+                          label: 'Night Shift',
+                          count: counts.night,
+                          caption: 'Events with members',
+                          background: DashColors.nightBg,
+                          accent: DashColors.blue,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: DashShiftSummaryCard(
+                          icon: Icons.groups_rounded,
+                          label: 'Total Events',
+                          count: counts.total,
+                          caption: 'Events with members',
+                          background: DashColors.dayBg,
+                          accent: DashColors.gold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
             if (loading)
               const SliverToBoxAdapter(
                 child: Padding(
@@ -521,9 +527,7 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
                 sliver: SliverToBoxAdapter(
                   child: DashEmptyCard(
                     icon: Icons.event_available_rounded,
-                    message: _isToday
-                        ? 'No events scheduled for today.'
-                        : 'No events scheduled for this date.',
+                    message: 'No events scheduled for this date.',
                   ),
                 ),
               )
@@ -568,6 +572,36 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
   }
 }
 
+/// Distinct-event counts behind the Day Shift / Night Shift / Total Events
+/// tiles. A booking is one event on one shift, so the same event (same
+/// catalog entry and client) booked for both shifts counts towards both
+/// shift tiles but only once in [total]. Assigned members never add to it.
+class _ShiftCounts {
+  final int day;
+  final int night;
+  final int total;
+  const _ShiftCounts(this.day, this.night, this.total);
+
+  factory _ShiftCounts.of(List<EventBooking> events) {
+    String key(EventBooking e) {
+      final event = e.eventTypeId.isNotEmpty
+          ? e.eventTypeId
+          : e.eventName.trim().toLowerCase();
+      return '$event|${e.personId}';
+    }
+
+    final day = {
+      for (final e in events)
+        if (e.shift == Shift.day) key(e),
+    };
+    final night = {
+      for (final e in events)
+        if (e.shift == Shift.night) key(e),
+    };
+    return _ShiftCounts(day.length, night.length, {...day, ...night}.length);
+  }
+}
+
 /// A booked-today event card matching the Pending Payments / payments-flow
 /// look: person avatar, shift badge, editable Total (amount) & Tips, and
 /// Event Done / Cancel Event actions.
@@ -590,7 +624,7 @@ class _TodaysEventCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const muted = TextStyle(color: AppColors.textSecondaryLight, fontSize: 13);
+    const muted = TextStyle(color: DashColors.textSecondary, fontSize: 13);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -614,12 +648,12 @@ class _TodaysEventCard extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: paymentOrange.withValues(alpha: 0.10),
+                  color: DashColors.lightGray,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
                   Icons.person_rounded,
-                  color: paymentOrange,
+                  color: DashColors.navy,
                   size: 21,
                 ),
               ),
@@ -629,18 +663,18 @@ class _TodaysEventCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      event.personName,
+                      event.eventName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 16,
-                        color: AppColors.textPrimaryLight,
+                        color: DashColors.text,
                       ),
                     ),
                     const SizedBox(height: 1),
                     Text(
-                      event.eventName,
+                      event.personName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: muted,
@@ -679,7 +713,7 @@ class _TodaysEventCard extends StatelessWidget {
               const Icon(
                 Icons.location_on_outlined,
                 size: 15,
-                color: AppColors.textSecondaryLight,
+                color: DashColors.textSecondary,
               ),
               const SizedBox(width: 5),
               Expanded(
@@ -694,7 +728,7 @@ class _TodaysEventCard extends StatelessWidget {
               const Icon(
                 Icons.calendar_today_outlined,
                 size: 14,
-                color: AppColors.textSecondaryLight,
+                color: DashColors.textSecondary,
               ),
               const SizedBox(width: 5),
               Text(formatEventDate(event.date), style: muted),
@@ -709,8 +743,8 @@ class _TodaysEventCard extends StatelessWidget {
                   child: _AmountTile(
                     label: 'Total',
                     value: event.amount,
-                    background: const Color(0xFFFCF6E6),
-                    borderColor: DashColors.gold.withValues(alpha: 0.35),
+                    background: DashColors.dayBg,
+                    borderColor: DashColors.gold.withValues(alpha: 0.6),
                     labelColor: DashColors.goldDeep,
                     valueColor: DashColors.navy,
                     hint: 'double-tap to edit',
@@ -722,12 +756,10 @@ class _TodaysEventCard extends StatelessWidget {
                   child: _AmountTile(
                     label: 'Tips',
                     value: event.tips,
-                    background: DashColors.lightBlue,
-                    borderColor: const Color(
-                      0xFF2F6FB5,
-                    ).withValues(alpha: 0.18),
-                    labelColor: const Color(0xFF2F6FB5),
-                    valueColor: const Color(0xFF2F6FB5),
+                    background: DashColors.nightBg,
+                    borderColor: DashColors.blue.withValues(alpha: 0.5),
+                    labelColor: DashColors.blue,
+                    valueColor: DashColors.blue,
                     hint: 'tap to edit',
                     onTap: () => _editTips(context),
                   ),
@@ -776,6 +808,7 @@ class _TodaysEventCard extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: onCancel,
                     style: OutlinedButton.styleFrom(
+                      backgroundColor: Colors.white,
                       foregroundColor: AppColors.danger,
                       side: const BorderSide(color: AppColors.danger),
                       padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -783,7 +816,7 @@ class _TodaysEventCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(13),
                       ),
                     ),
-                    icon: const Icon(Icons.cancel_outlined, size: 19),
+                    icon: const Icon(Icons.cancel_rounded, size: 19),
                     label: const FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
@@ -826,8 +859,9 @@ class _ShiftLabelBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = shift == Shift.day ? shiftDayBg : shiftNightBg;
-    final text = shift == Shift.day ? shiftDayText : shiftNightText;
+    final isDay = shift == Shift.day;
+    final bg = isDay ? DashColors.dayBadgeBg : DashColors.nightBadgeBg;
+    final text = isDay ? DashColors.goldDeep : DashColors.blue;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(

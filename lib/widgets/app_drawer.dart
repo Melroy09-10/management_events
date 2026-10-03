@@ -121,12 +121,14 @@ class _AppDrawerState extends State<AppDrawer> {
                             ListView(
                               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                               children: [
-                                const _SectionLabel('ADMIN'),
+                                const _SectionLabel('ADMIN · EVENTS'),
                                 _AddStaffingEventDrawerItem(),
                                 _AddMembersDrawerItem(),
+                                const _SectionLabel('ADMIN · MANAGE'),
                                 _AdminPendingEventsDrawerItem(),
                                 _PayoutsDrawerItem(),
                                 _ContactDrawerItem(),
+                                _PayoutHistoryDrawerItem(),
                                 if (isSuperAdmin) _AdminRequestsDrawerItem(),
                               ],
                             ),
@@ -450,6 +452,20 @@ class _PayoutsDrawerItem extends StatelessWidget {
       label: 'Payouts',
       onTap: () {
         _openFromDrawer(context, const PayoutsScreen());
+      },
+    );
+  }
+}
+
+/// Admin-only: each member's payment history, picked by name.
+class _PayoutHistoryDrawerItem extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return _DrawerItem(
+      icon: Icons.manage_history_rounded,
+      label: 'History',
+      onTap: () {
+        _openFromDrawer(context, const PayoutHistoryScreen());
       },
     );
   }
