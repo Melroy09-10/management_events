@@ -280,6 +280,22 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
     });
   }
 
+  /// Assigned Members rows: grouped by event (name, then shift), members
+  /// A–Z within each.
+  static int _byEventThenMember(
+    ({EventBooking event, AssignedMember member}) a,
+    ({EventBooking event, AssignedMember member}) b,
+  ) {
+    int lower(String x, String y) => x.toLowerCase().compareTo(y.toLowerCase());
+    final byName = lower(a.event.eventName, b.event.eventName);
+    if (byName != 0) return byName;
+    final byShift = a.event.shift.index.compareTo(b.event.shift.index);
+    if (byShift != 0) return byShift;
+    final byEvent = a.event.id.compareTo(b.event.id);
+    if (byEvent != 0) return byEvent;
+    return lower(a.member.name, b.member.name);
+  }
+
   void _goTo(int page) {
     if (page != _page) setState(() => _page = page);
   }
@@ -289,6 +305,424 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
     if (velocity < -250) _goTo(1);
     if (velocity > 250) _goTo(0);
   }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<EventBooking>>(
+      stream: _myEvents,
+      builder: (context, mine) {
+        if (!widget.isAdmin) return _content(context, mine, null);
+        return StreamBuilder<List<EventBooking>>(
+          stream: _staffingEvents,
+          builder: (context, staffing) => _content(context, mine, staffing),
+        );
+      },
+    );
+  }
+
+  Widget _content(
+    BuildContext context,
+    AsyncSnapshot<List<EventBooking>> mine,
+    AsyncSnapshot<List<EventBooking>>? staffing,
+  ) {
+    final dataService = context.read<DataService>();
+    final events = mine.data ?? const <EventBooking>[];
+    // Members can be assigned to any upcoming event from Assign Members, so
+    // both of the day's streams are searched. Events with nobody assigned
+    // simply contribute no rows.
+    final assignedEvents = [
+      for (final e in [...events, ...?staffing?.data])
+        if (e.assignedMembers.isNotEmpty) e,
+    ];
+    final assignments = [
+      for (final e in assignedEvents)
+        for (final m in e.assignedMembers) (event: e, member: m),
+    ]..sort(_byEventThenMember);
+    final showingAssigned = widget.isAdmin && _page == 1;
+    final loading = showingAssigned
+        ? mine.connectionState == ConnectionState.waiting ||
+              staffing?.connectionState == ConnectionState.waiting
+        : mine.connectionState == ConnectionState.waiting;
+    final counts = _ShiftCounts.of(showingAssigned ? assignedEvents : events);
+
+    return ResponsiveCenter(
+      maxWidth: 760,
+      child: GestureDetector(
+        onHorizontalDragEnd: widget.isAdmin ? _onSwipe : null,
+        child: CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 16, 12),
+              sliver: SliverToBoxAdapter(
+                child: Row(
+                  children: [
+                    // Title + count shrink to fit rather than being cut off
+                    // ("Today' …") next to the date selector.
+                    Expanded(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              showingAssigned
+                                  ? 'Assigned Members'
+                                  : (_isToday ? "Today's Events" : 'Events'),
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: DashColors.textPrimary(context),
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            DashCountBadge(
+                              count: showingAssigned
+                                  ? assignments.length
+                                  : events.length,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    DashDateSelector(date: _date, onTap: _pickDate),
+                  ],
+                ),
+              ),
+            ),
+            if (widget.isAdmin)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                sliver: SliverToBoxAdapter(
+                  child: DashEventTabs(
+                    selected: _page,
+                    onChanged: _goTo,
+                    tabs: const [
+                      DashTab(Icons.calendar_month_rounded, 'My Events'),
+                      DashTab(Icons.groups_rounded, 'Assigned Members'),
+                    ],
+                  ),
+                ),
+              ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              sliver: SliverToBoxAdapter(
+                child: _ShiftSummaryRow(
+                  counts: counts,
+                  assigned: showingAssigned,
+                ),
+              ),
+            ),
+            if (loading)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.only(top: 40),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              )
+            else if (showingAssigned && assignments.isEmpty)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
+                sliver: SliverToBoxAdapter(
+                  child: DashEmptyCard(
+                    icon: Icons.group_off_rounded,
+                    message: 'No members assigned for this date.',
+                  ),
+                ),
+              )
+            else if (showingAssigned)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
+                sliver: SliverList.separated(
+                  itemCount: assignments.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final (:event, :member) = assignments[index];
+                    return _AssignedMemberCard(
+                      member: member,
+                      event: event,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => _EventMembersScreen(event: event),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              )
+            else if (events.isEmpty)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
+                sliver: SliverToBoxAdapter(
+                  child: DashEmptyCard(
+                    icon: Icons.event_available_rounded,
+                    message: 'No events scheduled for this date.',
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    final event = events[index];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _TodaysEventCard(
+                        event: event,
+                        onEditTips: (tips) =>
+                            dataService.updateEventTips(event.id, tips),
+                        onEditAmount: (amount) =>
+                            dataService.updateEventAmount(event.id, amount),
+                        onPaymentDone: () async {
+                          await dataService.markBookingDone(event.id);
+                          _showMessage('Moved to Pending Payments');
+                        },
+                        onEdit: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => AddEventScreen(existing: event),
+                          ),
+                        ),
+                        onCancel: () async {
+                          final confirmed = await confirmDelete(context);
+                          if (!confirmed || !context.mounted) return;
+                          await dataService.deleteEventBooking(event.id);
+                          _showMessage('Event cancelled');
+                        },
+                      ),
+                    );
+                  }, childCount: events.length),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The three tiles under the tabs. My Events shows Day Shift / Night Shift
+/// / Total Events; Assigned Members shows Total / Day / Night Events.
+class _ShiftSummaryRow extends StatelessWidget {
+  final _ShiftCounts counts;
+  final bool assigned;
+  const _ShiftSummaryRow({required this.counts, required this.assigned});
+
+  @override
+  Widget build(BuildContext context) {
+    final day = DashShiftSummaryCard(
+      icon: Icons.wb_sunny_rounded,
+      label: assigned ? 'Day Events' : 'Day Shift',
+      count: counts.day,
+      caption: 'Events with members',
+      background: DashColors.dayBg,
+      accent: DashColors.gold,
+    );
+    final night = DashShiftSummaryCard(
+      icon: Icons.nightlight_round,
+      label: assigned ? 'Night Events' : 'Night Shift',
+      count: counts.night,
+      caption: 'Events with members',
+      background: DashColors.nightBg,
+      accent: DashColors.blue,
+    );
+    final total = DashShiftSummaryCard(
+      icon: Icons.groups_rounded,
+      label: 'Total Events',
+      count: counts.total,
+      caption: 'Events with members',
+      background: DashColors.dayBg,
+      accent: DashColors.gold,
+    );
+    final tiles = assigned ? [total, day, night] : [day, night, total];
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < tiles.length; i++) ...[
+            if (i > 0) const SizedBox(width: 10),
+            Expanded(child: tiles[i]),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// One assigned member on the Assigned Members tab: initial avatar, name,
+/// the event they're assigned to, its Day / Night shift, and whether
+/// they've been marked present. Tapping opens [_EventMembersScreen] for
+/// that event, where attendance, calling and add/remove are managed.
+class _AssignedMemberCard extends StatelessWidget {
+  final AssignedMember member;
+  final EventBooking event;
+  final VoidCallback onTap;
+  const _AssignedMemberCard({
+    required this.member,
+    required this.event,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = member.name.trim();
+    final present = event.presentMemberIds.contains(member.id);
+    final radius = BorderRadius.circular(16);
+    return Material(
+      color: DashColors.surface(context),
+      shape: RoundedRectangleBorder(
+        borderRadius: radius,
+        side: BorderSide(color: DashColors.line(context)),
+      ),
+      child: InkWell(
+        borderRadius: radius,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: DashColors.tint(
+                  context,
+                  light: DashColors.dayBadgeBg,
+                  accent: DashColors.gold,
+                ),
+                child: Text(
+                  name.isEmpty ? '?' : name[0].toUpperCase(),
+                  style: const TextStyle(
+                    color: DashColors.goldDeep,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name.isEmpty ? 'Unnamed member' : name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: DashColors.textPrimary(context),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.event_note_rounded,
+                          size: 14,
+                          color: DashColors.textMuted(context),
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            event.eventName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: DashColors.textMuted(context),
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        _ShiftLabelBadge(shift: event.shift),
+                        _StatusChip(present: present),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: DashColors.textMuted(context),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Present" (green) once ticked on the event's members page, otherwise
+/// "Assigned".
+class _StatusChip extends StatelessWidget {
+  final bool present;
+  const _StatusChip({required this.present});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = present ? DashColors.green : DashColors.textSecondary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: present ? DashColors.lightGreen : DashColors.lightGray,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            present ? Icons.check_circle_rounded : Icons.schedule_rounded,
+            size: 13,
+            color: color,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            present ? 'Present' : 'Assigned',
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One staffing event's members, opened from View Members: the event
+/// header (with Edit), assigned / present statistics, and each member with
+/// present tick, remove, and long-press to call — plus Add Member, which
+/// opens the existing allocation picker for this event. Kept live, so
+/// changes made here or in the picker show straight away.
+class _EventMembersScreen extends StatefulWidget {
+  final EventBooking event;
+  const _EventMembersScreen({required this.event});
+
+  @override
+  State<_EventMembersScreen> createState() => _EventMembersScreenState();
+}
+
+class _EventMembersScreenState extends State<_EventMembersScreen> {
+  late final Stream<EventBooking?> _event = context
+      .read<DataService>()
+      .eventBooking(widget.event.id);
 
   void _showMessage(String message) {
     if (!mounted) return;
@@ -353,221 +787,54 @@ class _TodaysEventsBodyState extends State<_TodaysEventsBody> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<EventBooking>>(
-      stream: _myEvents,
-      builder: (context, mine) {
-        if (!widget.isAdmin) return _content(context, mine, null);
-        return StreamBuilder<List<EventBooking>>(
-          stream: _staffingEvents,
-          builder: (context, staffing) => _content(context, mine, staffing),
+    return StreamBuilder<EventBooking?>(
+      stream: _event,
+      initialData: widget.event,
+      builder: (context, snapshot) {
+        final event = snapshot.data;
+        return Scaffold(
+          appBar: AppBar(title: const Text('Members')),
+          floatingActionButton: event == null
+              ? null
+              : DashAddEventButton(
+                  label: 'Add Member',
+                  icon: Icons.person_add_alt_1_rounded,
+                  onPressed: () => showAddMembersSheet(context, event),
+                ),
+          body: SafeArea(
+            top: false,
+            child: snapshot.hasError
+                ? Center(
+                    child: Text('Could not load members: ${snapshot.error}'),
+                  )
+                : event == null
+                ? const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: DashEmptyCard(
+                      icon: Icons.event_busy_rounded,
+                      message: 'This event is no longer available.',
+                    ),
+                  )
+                : ResponsiveCenter(
+                    maxWidth: 760,
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
+                      children: [
+                        DashStaffingEventCard(
+                          event: event,
+                          onEdit: () =>
+                              showEditStaffingEventSheet(context, event),
+                          onPresentChanged: (member, present) =>
+                              _setPresent(event, member, present),
+                          onRemove: (member) => _removeMember(event, member),
+                          onCall: _callMember,
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
         );
       },
-    );
-  }
-
-  Widget _content(
-    BuildContext context,
-    AsyncSnapshot<List<EventBooking>> mine,
-    AsyncSnapshot<List<EventBooking>>? staffing,
-  ) {
-    final dataService = context.read<DataService>();
-    final events = mine.data ?? const <EventBooking>[];
-    final staffingEvents = staffing?.data ?? const <EventBooking>[];
-    final showingAssigned = widget.isAdmin && _page == 1;
-    final loading = showingAssigned
-        ? staffing?.connectionState == ConnectionState.waiting
-        : mine.connectionState == ConnectionState.waiting;
-    final counts = _ShiftCounts.of(showingAssigned ? staffingEvents : events);
-
-    return ResponsiveCenter(
-      maxWidth: 760,
-      child: GestureDetector(
-        onHorizontalDragEnd: widget.isAdmin ? _onSwipe : null,
-        child: CustomScrollView(
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 16, 14),
-              sliver: SliverToBoxAdapter(
-                child: Row(
-                  children: [
-                    // Title + count shrink to fit rather than being cut off
-                    // ("Today' …") next to the date selector.
-                    Expanded(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              _isToday ? "Today's Events" : 'Events',
-                              maxLines: 1,
-                              style: TextStyle(
-                                color: DashColors.textPrimary(context),
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: -0.2,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            DashCountBadge(
-                              count: showingAssigned
-                                  ? staffingEvents.length
-                                  : events.length,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    DashDateSelector(date: _date, onTap: _pickDate),
-                  ],
-                ),
-              ),
-            ),
-            if (widget.isAdmin)
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-                sliver: SliverToBoxAdapter(
-                  child: DashEventTabs(
-                    selected: _page,
-                    onChanged: _goTo,
-                    tabs: const [
-                      DashTab(Icons.calendar_month_rounded, 'My Events'),
-                      DashTab(Icons.groups_rounded, 'Assigned Members'),
-                    ],
-                  ),
-                ),
-              ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-              sliver: SliverToBoxAdapter(
-                child: IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(
-                        child: DashShiftSummaryCard(
-                          icon: Icons.wb_sunny_rounded,
-                          label: 'Day Shift',
-                          count: counts.day,
-                          caption: 'Events with members',
-                          background: DashColors.dayBg,
-                          accent: DashColors.gold,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: DashShiftSummaryCard(
-                          icon: Icons.nightlight_round,
-                          label: 'Night Shift',
-                          count: counts.night,
-                          caption: 'Events with members',
-                          background: DashColors.nightBg,
-                          accent: DashColors.blue,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: DashShiftSummaryCard(
-                          icon: Icons.groups_rounded,
-                          label: 'Total Events',
-                          count: counts.total,
-                          caption: 'Events with members',
-                          background: DashColors.dayBg,
-                          accent: DashColors.gold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            if (loading)
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.only(top: 40),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-              )
-            else if (showingAssigned && staffingEvents.isEmpty)
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
-                sliver: SliverToBoxAdapter(
-                  child: DashEmptyCard(
-                    icon: Icons.groups_rounded,
-                    message: _isToday
-                        ? 'No members assigned for today.'
-                        : 'No members assigned for this date.',
-                  ),
-                ),
-              )
-            else if (showingAssigned)
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
-                sliver: SliverList.separated(
-                  itemCount: staffingEvents.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 16),
-                  itemBuilder: (context, index) {
-                    final event = staffingEvents[index];
-                    return DashStaffingEventCard(
-                      event: event,
-                      onEdit: () => showEditStaffingEventSheet(context, event),
-                      onPresentChanged: (member, present) =>
-                          _setPresent(event, member, present),
-                      onRemove: (member) => _removeMember(event, member),
-                      onCall: _callMember,
-                    );
-                  },
-                ),
-              )
-            else if (events.isEmpty)
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
-                sliver: SliverToBoxAdapter(
-                  child: DashEmptyCard(
-                    icon: Icons.event_available_rounded,
-                    message: 'No events scheduled for this date.',
-                  ),
-                ),
-              )
-            else
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate((context, index) {
-                    final event = events[index];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _TodaysEventCard(
-                        event: event,
-                        onEditTips: (tips) =>
-                            dataService.updateEventTips(event.id, tips),
-                        onEditAmount: (amount) =>
-                            dataService.updateEventAmount(event.id, amount),
-                        onPaymentDone: () async {
-                          await dataService.markBookingDone(event.id);
-                          _showMessage('Moved to Pending Payments');
-                        },
-                        onEdit: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => AddEventScreen(existing: event),
-                          ),
-                        ),
-                        onCancel: () async {
-                          final confirmed = await confirmDelete(context);
-                          if (!confirmed || !context.mounted) return;
-                          await dataService.deleteEventBooking(event.id);
-                          _showMessage('Event cancelled');
-                        },
-                      ),
-                    );
-                  }, childCount: events.length),
-                ),
-              ),
-          ],
-        ),
-      ),
     );
   }
 }

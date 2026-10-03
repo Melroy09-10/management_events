@@ -790,7 +790,9 @@ class DashStaffingEventCard extends StatelessWidget {
                           icon: Icons.groups_rounded,
                           color: DashColors.green,
                           lightTint: DashColors.lightGreen,
-                          label: '$assigned of $required assigned',
+                          label: required > 0
+                              ? '$assigned of $required assigned'
+                              : '$assigned assigned',
                           progress: required == 0 ? 0 : assigned / required,
                           progressColor: isFull
                               ? DashColors.green
@@ -1027,10 +1029,18 @@ class DashEmptyCard extends StatelessWidget {
   }
 }
 
-/// Floating navy pill "Add Event" button with a gold border.
+/// Floating navy pill "Add Event" button with a gold border. [label] and
+/// [icon] can be swapped for other add actions (e.g. "Add Member").
 class DashAddEventButton extends StatelessWidget {
   final VoidCallback onPressed;
-  const DashAddEventButton({super.key, required this.onPressed});
+  final String label;
+  final IconData icon;
+  const DashAddEventButton({
+    super.key,
+    required this.onPressed,
+    this.label = 'Add Event',
+    this.icon = Icons.add_rounded,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1043,9 +1053,9 @@ class DashAddEventButton extends StatelessWidget {
       shape: const StadiumBorder(
         side: BorderSide(color: DashColors.gold, width: 1.6),
       ),
-      icon: const Icon(Icons.add_rounded, size: 24),
-      label: const Text(
-        'Add Event',
+      icon: Icon(icon, size: 24),
+      label: Text(
+        label,
         style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
       ),
     );
